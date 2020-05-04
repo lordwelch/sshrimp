@@ -107,3 +107,25 @@ func (r *sshrimpAgent) Signers() ([]ssh.Signer, error) {
 		r.signer,
 	}, nil
 }
+
+func (r *sshrimpAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
+	sign, ok := r.signer.(ssh.AlgorithmSigner)
+	if ok {
+		if flags&agent.SignatureFlagRsaSha512 == agent.SignatureFlagRsaSha512 {
+			s, err := sign.SignWithAlgorithm(rand.Reader, data, ssh.SigAlgoRSASHA2512)
+			if err == nil {
+				return s, err
+			}
+		}
+		if flags&agent.SignatureFlagRsaSha256 == agent.SignatureFlagRsaSha256 {
+			s, err := sign.SignWithAlgorithm(rand.Reader, data, ssh.SigAlgoRSASHA2256)
+			if err == nil {
+				return s, err
+			}
+		}
+	}
+	return r.Sign(key, data)
+}
+func (r *sshrimpAgent) Extension(extensionType string, contents []byte) ([]byte, error) {
+	return nil, agent.ErrExtensionUnsupported
+}
