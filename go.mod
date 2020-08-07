@@ -1,8 +1,10 @@
 module github.com/stoggi/sshrimp
 
-go 1.13
+go 1.14
 
 replace github.com/b-b3rn4rd/gocfn => github.com/stoggi/gocfn v0.0.0-20200214083946-6202cea979b9
+
+replace github.com/stoggi/aws-oidc => ./internal/aws-oidc
 
 require (
 	cloud.google.com/go v0.38.0
