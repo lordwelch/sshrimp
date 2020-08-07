@@ -5,12 +5,15 @@ import (
 	"errors"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stoggi/aws-oidc/provider"
 	"github.com/stoggi/sshrimp/internal/config"
 	"github.com/stoggi/sshrimp/internal/signer"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
+
+var Log *logrus.Entry
 
 type sshrimpAgent struct {
 	providerConfig provider.ProviderConfig
@@ -43,6 +46,7 @@ func NewSSHrimpAgent(c *config.SSHrimp, signer ssh.Signer) agent.Agent {
 
 // RemoveAll clears the current certificate and identity token (including refresh token)
 func (r *sshrimpAgent) RemoveAll() error {
+	Log.Debugln("Removing identity token and certificate")
 	r.certificate = &ssh.Certificate{}
 	r.token = &provider.OAuth2Token{}
 	return nil
@@ -65,18 +69,24 @@ func (r *sshrimpAgent) Unlock(passphrase []byte) error {
 
 // List returns the identities, but also signs the certificate using sshrimp-ca if expired.
 func (r *sshrimpAgent) List() ([]*agent.Key, error) {
+	Log.Traceln("Listing current identities")
 
 	unixNow := time.Now().Unix()
 	before := int64(r.certificate.ValidBefore)
 	if r.certificate.ValidBefore != uint64(ssh.CertTimeInfinity) && (unixNow >= before || before < 0) {
 		// Certificate has expired
+		Log.Traceln("Certificate has expired")
+		Log.Traceln("authenticating token")
 		err := r.providerConfig.Authenticate(r.token)
 		if err != nil {
+			Log.Errorf("authenticating the token failed: %v", err)
 			return nil, err
 		}
 
+		Log.Traceln("signing certificate")
 		cert, err := signer.SignCertificateAllRegions(r.signer.PublicKey(), r.token.IDToken, "", r.config)
 		if err != nil {
+			Log.Errorf("signing certificate failed: %v", err)
 			return nil, err
 		}
 		r.certificate = cert
@@ -109,21 +119,28 @@ func (r *sshrimpAgent) Signers() ([]ssh.Signer, error) {
 }
 
 func (r *sshrimpAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
+	Log.Traceln("requested sign with flags")
 	sign, ok := r.signer.(ssh.AlgorithmSigner)
+	Log.Tracef("signer is AlgorithmSigner: %v", ok)
 	if ok {
 		if flags&agent.SignatureFlagRsaSha512 == agent.SignatureFlagRsaSha512 {
+			Log.Traceln("sha 512 requested")
 			s, err := sign.SignWithAlgorithm(rand.Reader, data, ssh.SigAlgoRSASHA2512)
 			if err == nil {
-				return s, err
+				Log.Debugln("sha 512 available:", err)
+				return s, nil
 			}
 		}
 		if flags&agent.SignatureFlagRsaSha256 == agent.SignatureFlagRsaSha256 {
+			Log.Traceln("sha 256 requested")
 			s, err := sign.SignWithAlgorithm(rand.Reader, data, ssh.SigAlgoRSASHA2256)
 			if err == nil {
-				return s, err
+				Log.Debugln("sha 256 available:", err)
+				return s, nil
 			}
 		}
 	}
+	Log.Traceln("signing data")
 	return r.Sign(key, data)
 }
 func (r *sshrimpAgent) Extension(extensionType string, contents []byte) ([]byte, error) {

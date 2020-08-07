@@ -18,11 +18,14 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/stoggi/sshrimp/internal/config"
 	"github.com/stoggi/sshrimp/internal/identity"
 
 	"golang.org/x/crypto/ssh"
 )
+
+var Log *logrus.Entry
 
 // SSHrimpResult encodes the payload format returned from the sshrimp-ca lambda
 type SSHrimpResult struct {
@@ -63,7 +66,6 @@ func SignCertificateAllRegions(publicKey ssh.PublicKey, token string, forceComma
 
 // SignCertificateGCP given a public key, identity token and forceCommand, invoke the sshrimp-ca GCP function
 func SignCertificateGCP(publicKey ssh.PublicKey, token string, forceCommand string, region string, c *config.SSHrimp) (*ssh.Certificate, error) {
-
 	// Setup the JSON payload for the SSHrimp CA
 	payload, err := json.Marshal(SSHrimpEvent{
 		PublicKey:    string(ssh.MarshalAuthorizedKey(publicKey)),
@@ -78,10 +80,6 @@ func SignCertificateGCP(publicKey ssh.PublicKey, token string, forceCommand stri
 	if err != nil {
 		return nil, errors.Wrap(err, "http post failed: "+err.Error())
 	}
-	if result.StatusCode != 200 {
-		return nil, fmt.Errorf("sshrimp returned status code %d", result.StatusCode)
-	}
-
 	resbody, err := ioutil.ReadAll(result.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to retrieve the response from sshrimp-ca")
@@ -91,7 +89,11 @@ func SignCertificateGCP(publicKey ssh.PublicKey, token string, forceCommand stri
 	sshrimpResult := SSHrimpResult{}
 	err = json.Unmarshal(resbody, &sshrimpResult)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to parse json response from sshrimp-ca")
+		return nil, errors.Wrap(err, "failed to parse json response from sshrimp-ca.: "+string(resbody))
+	}
+	Log.Traceln("SSHrimpResult:", sshrimpResult)
+	if result.StatusCode != 200 {
+		return nil, fmt.Errorf("sshrimp returned status code %d. Message: %s", result.StatusCode, string(resbody))
 	}
 
 	// These error types and messages can also come from the aws-sdk-go lambda handler
@@ -165,7 +167,7 @@ func ValidateRequest(event SSHrimpEvent, c *config.SSHrimp, requestID string, fu
 	}
 
 	// Validate the user supplied identity token with the loaded configuration
-	i, err := identity.NewIdentity(c)
+	i, _ := identity.NewIdentity(c)
 	username, err := i.Validate(event.Token)
 	if err != nil {
 		return ssh.Certificate{}, err
