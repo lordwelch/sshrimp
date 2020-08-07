@@ -70,11 +70,9 @@ func (r *sshrimpAgent) Unlock(passphrase []byte) error {
 // List returns the identities, but also signs the certificate using sshrimp-ca if expired.
 func (r *sshrimpAgent) List() ([]*agent.Key, error) {
 	Log.Traceln("Listing current identities")
+	validEndDate := time.Unix(int64(r.certificate.ValidBefore), 0)
 
-	unixNow := time.Now().Unix()
-	before := int64(r.certificate.ValidBefore)
-	if r.certificate.ValidBefore != uint64(ssh.CertTimeInfinity) && (unixNow >= before || before < 0) {
-		// Certificate has expired
+	if r.certificate.ValidBefore != uint64(ssh.CertTimeInfinity) && (time.Now().After(validEndDate) || validEndDate.Unix() < 0) {
 		Log.Traceln("Certificate has expired")
 		Log.Traceln("authenticating token")
 		err := r.providerConfig.Authenticate(r.token)
