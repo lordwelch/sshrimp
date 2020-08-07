@@ -3,6 +3,7 @@ package signer
 import (
 	"context"
 	"crypto"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -12,7 +13,7 @@ import (
 	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
 )
 
-// KMSSigner a GCP asymetric crypto signer
+// GCPSigner a GCP asymetric crypto signer
 type GCPSigner struct {
 	crypto.Signer
 	ctx    context.Context
@@ -37,12 +38,21 @@ func NewGCPSSigner(key string) *GCPSigner {
 
 // Public returns the public key from KMS
 func (s *GCPSigner) Public() crypto.PublicKey {
-
 	response, err := s.client.GetPublicKey(s.ctx, &kmspb.GetPublicKeyRequest{
 		Name: s.key,
 	})
 	if err != nil {
-		fmt.Printf(err.Error())
+		fmt.Println(err.Error())
+		return nil
+	}
+	switch response.GetAlgorithm() {
+	case kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_2048_SHA256,
+		kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_3072_SHA256,
+		kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA256,
+		kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA512:
+		// awesome
+	default:
+		fmt.Println("crypto key has the wrong algorithm, must be rsa with PKCS1 padding")
 		return nil
 	}
 
@@ -84,6 +94,12 @@ func (s *GCPSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) 
 	if err != nil {
 		return nil, err
 	}
-
-	return response.GetSignature(), nil
+	sig := response.GetSignature()
+	pubKey := s.Public()
+	rKey := pubKey.(*rsa.PublicKey)
+	err = rsa.VerifyPKCS1v15(rKey, crypto.SHA256, digest, sig)
+	if err != nil {
+		return nil, err
+	}
+	return sig, nil
 }
