@@ -52,7 +52,7 @@ func (s *GCPSigner) Public() crypto.PublicKey {
 
 	publicKey, err := x509.ParsePKIXPublicKey(pemBlock.Bytes)
 	if err != nil {
-		fmt.Printf(err.Error())
+		fmt.Println(err.Error())
 		return nil
 	}
 

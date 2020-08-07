@@ -1,6 +1,7 @@
 package gcp
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -8,35 +9,36 @@ import (
 	"os"
 
 	"github.com/stoggi/sshrimp/internal/config"
+	"github.com/stoggi/sshrimp/internal/identity"
 	"github.com/stoggi/sshrimp/internal/signer"
 	"golang.org/x/crypto/ssh"
 )
 
 func httpError(w http.ResponseWriter, v interface{}, statusCode int) {
-	e := json.NewEncoder(w)
-	err := e.Encode(v)
-	http.Error(w, err.Error(), statusCode)
+	var b bytes.Buffer
+	e := json.NewEncoder(&b)
+	_ = e.Encode(v)
+	http.Error(w, b.String(), statusCode)
 }
 
-// HandleRequest handles a request to sign an SSH public key verified by an OpenIDConnect id_token
+// SSHrimp handles a request to sign an SSH public key verified by an OpenIDConnect id_token
 func SSHrimp(w http.ResponseWriter, r *http.Request) {
-
 	// Load the configuration file, if not exsits, exit.
 	c := config.NewSSHrimp()
-	if err := c.Read(config.GetPath()); err != nil {
-		httpError(w, signer.SSHrimpResult{"", err.Error(), http.StatusText(http.StatusInternalServerError)}, http.StatusInternalServerError)
+	if err := c.Read("./serverless_function_source_code/sshrimp.toml"); err != nil {
+		httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusInternalServerError)}, http.StatusInternalServerError)
 		return
 	}
 
 	var event signer.SSHrimpEvent
 	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
-		httpError(w, signer.SSHrimpResult{"", err.Error(), http.StatusText(http.StatusBadRequest)}, http.StatusBadRequest)
+		httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusBadRequest)}, http.StatusBadRequest)
 		return
 	}
 
 	certificate, err := signer.ValidateRequest(event, c, r.Header.Get("Function-Execution-Id"), fmt.Sprintf("%s/%s/%s", os.Getenv("GCP_PROJECT"), os.Getenv("FUNCTION_REGION"), os.Getenv("FUNCTION_NAME")))
 	if err != nil {
-		httpError(w, signer.SSHrimpResult{"", err.Error(), http.StatusText(http.StatusBadRequest)}, http.StatusBadRequest)
+		httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusBadRequest)}, http.StatusBadRequest)
 		return
 	}
 
@@ -45,20 +47,28 @@ func SSHrimp(w http.ResponseWriter, r *http.Request) {
 
 	sshAlgorithmSigner, err := signer.NewAlgorithmSignerFromSigner(kmsSigner, ssh.SigAlgoRSASHA2256)
 	if err != nil {
-		httpError(w, signer.SSHrimpResult{"", err.Error(), http.StatusText(http.StatusBadRequest)}, http.StatusBadRequest)
+		httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusBadRequest)}, http.StatusBadRequest)
 		return
 	}
 
 	// Sign the certificate!!
 	if err := certificate.SignCert(rand.Reader, sshAlgorithmSigner); err != nil {
-		httpError(w, signer.SSHrimpResult{"", err.Error(), http.StatusText(http.StatusBadRequest)}, http.StatusBadRequest)
+		httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusInternalServerError)}, http.StatusInternalServerError)
+		return
+	}
+	i, _ := identity.NewIdentity(c)
+	username, _ := i.Validate(event.Token)
+	cc := ssh.CertChecker{}
+	err = cc.CheckCert(username, &certificate)
+	if err != nil {
+		httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusInternalServerError)}, http.StatusBadRequest)
 		return
 	}
 
 	// Extract the public key (certificate) to return to the user
 	pubkey, err := ssh.ParsePublicKey(certificate.Marshal())
 	if err != nil {
-		httpError(w, signer.SSHrimpResult{"", err.Error(), http.StatusText(http.StatusBadRequest)}, http.StatusBadRequest)
+		httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusInternalServerError)}, http.StatusInternalServerError)
 		return
 	}
 
@@ -69,9 +79,5 @@ func SSHrimp(w http.ResponseWriter, r *http.Request) {
 		ErrorType:    "",
 	}
 	e := json.NewEncoder(w)
-	err = e.Encode(res)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+	_ = e.Encode(res)
 }
