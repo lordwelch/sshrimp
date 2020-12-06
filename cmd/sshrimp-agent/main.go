@@ -22,9 +22,12 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
-var sigs = []os.Signal{os.Kill, os.Interrupt}
-var logger = logrus.New()
-var log *logrus.Entry
+var (
+	sigExit   = []os.Signal{os.Kill, os.Interrupt}
+	sigIgnore = []os.Signal{}
+	logger    = logrus.New()
+	log       *logrus.Entry
+)
 
 var cli struct {
 	Config string `kong:"arg,type='string',help='sshrimp config file (default: ${config_file} or ${env_var_name} environment variable)',default='${config_file}',env='SSHRIMP_CONFIG'"`
@@ -118,9 +121,11 @@ func launchAgent(c *config.SSHrimp) error {
 	sshrimpAgent := sshrimpagent.NewSSHrimpAgent(c, signer)
 
 	// Listen for signals so that we can close the listener and exit nicely
-	log.Debugf("Exiting on signals: %v", sigs)
+	log.Debugf("Ignoring signals: %v", sigIgnore)
+	signal.Ignore(sigIgnore...)
+	log.Debugf("Exiting on signals: %v", sigExit)
 	osSignals := make(chan os.Signal)
-	signal.Notify(osSignals, sigs...)
+	signal.Notify(osSignals, sigExit...)
 	go func() {
 		<-osSignals
 		listener.Close()

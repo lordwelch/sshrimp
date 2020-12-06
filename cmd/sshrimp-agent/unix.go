@@ -7,5 +7,6 @@ import (
 )
 
 func init() {
-	sigs = append(sigs, syscall.SIGTERM)
+	sigExit = append(sigExit, syscall.SIGTERM)
+	sigIgnore = append(sigIgnore, syscall.SIGHUP)
 }

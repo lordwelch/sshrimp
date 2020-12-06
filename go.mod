@@ -6,7 +6,7 @@ replace github.com/b-b3rn4rd/gocfn => github.com/stoggi/gocfn v0.0.0-20200214083
 
 require (
 	cloud.google.com/go v0.73.0
-	git.narnian.us/lordwelch/aws-oidc v0.0.3
+	git.narnian.us/lordwelch/aws-oidc v0.0.4
 	github.com/AlecAivazis/survey/v2 v2.2.4
 	github.com/BurntSushi/toml v0.3.1
 	github.com/aws/aws-lambda-go v1.19.0
