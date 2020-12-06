@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"git.narnian.us/lordwelch/sshrimp/internal/config"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/kms"
 	"github.com/magefile/mage/mg"
 	"github.com/magefile/mage/sh"
 	"github.com/magefile/mage/target"
-	"github.com/stoggi/sshrimp/internal/config"
 	"golang.org/x/crypto/ssh"
 )
 

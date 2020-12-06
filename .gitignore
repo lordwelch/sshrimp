@@ -1,10 +1,7 @@
 sshrimp.toml
 
-sshrimp-ca
 sshrimp-ca.tf.json
 sshrimp-ca.zip
-
-sshrimp-agent
 
 terraform.tfstate
 terraform.tfstate.backup

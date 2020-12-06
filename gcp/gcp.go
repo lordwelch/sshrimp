@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/stoggi/sshrimp/internal/config"
-	"github.com/stoggi/sshrimp/internal/identity"
-	"github.com/stoggi/sshrimp/internal/signer"
+	"git.narnian.us/lordwelch/sshrimp/internal/config"
+	"git.narnian.us/lordwelch/sshrimp/internal/identity"
+	"git.narnian.us/lordwelch/sshrimp/internal/signer"
 	"golang.org/x/crypto/ssh"
 )
 

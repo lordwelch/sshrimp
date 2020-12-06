@@ -1,11 +1,11 @@
 package ca
 
 import (
+	"git.narnian.us/lordwelch/sshrimp/internal/config"
 	"github.com/awslabs/goformation/v4/cloudformation"
 	"github.com/awslabs/goformation/v4/cloudformation/iam"
 	"github.com/awslabs/goformation/v4/cloudformation/kms"
 	"github.com/awslabs/goformation/v4/cloudformation/lambda"
-	"github.com/stoggi/sshrimp/internal/config"
 )
 
 func makePolicyDocument(statement map[string]interface{}) map[string]interface{} {

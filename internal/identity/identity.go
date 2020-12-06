@@ -5,8 +5,8 @@ import (
 	"errors"
 	"regexp"
 
+	"git.narnian.us/lordwelch/sshrimp/internal/config"
 	"github.com/coreos/go-oidc"
-	"github.com/stoggi/sshrimp/internal/config"
 )
 
 // Identity holds information required to verify an OIDC identity token

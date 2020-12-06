@@ -14,10 +14,10 @@ import (
 	"strings"
 	"syscall"
 
+	"git.narnian.us/lordwelch/sshrimp/internal/config"
+	"git.narnian.us/lordwelch/sshrimp/internal/signer"
+	"git.narnian.us/lordwelch/sshrimp/internal/sshrimpagent"
 	"github.com/sirupsen/logrus"
-	"github.com/stoggi/sshrimp/internal/config"
-	"github.com/stoggi/sshrimp/internal/signer"
-	"github.com/stoggi/sshrimp/internal/sshrimpagent"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )

@@ -14,13 +14,13 @@ import (
 	"sort"
 	"time"
 
+	"git.narnian.us/lordwelch/sshrimp/internal/config"
+	"git.narnian.us/lordwelch/sshrimp/internal/identity"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/stoggi/sshrimp/internal/config"
-	"github.com/stoggi/sshrimp/internal/identity"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -91,7 +91,7 @@ func SignCertificateGCP(publicKey ssh.PublicKey, token string, forceCommand stri
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to parse json response from sshrimp-ca.: "+string(resbody))
 	}
-	Log.Traceln("SSHrimpResult:", sshrimpResult)
+
 	if result.StatusCode != 200 {
 		return nil, fmt.Errorf("sshrimp returned status code %d. Message: %s", result.StatusCode, string(resbody))
 	}

@@ -5,10 +5,10 @@ import (
 	"crypto/rand"
 	"fmt"
 
+	"git.narnian.us/lordwelch/sshrimp/internal/config"
+	"git.narnian.us/lordwelch/sshrimp/internal/signer"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-lambda-go/lambdacontext"
-	"github.com/stoggi/sshrimp/internal/config"
-	"github.com/stoggi/sshrimp/internal/signer"
 	"golang.org/x/crypto/ssh"
 )
 

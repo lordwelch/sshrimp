@@ -5,10 +5,10 @@ import (
 	"errors"
 	"time"
 
+	"git.narnian.us/lordwelch/aws-oidc/provider"
+	"git.narnian.us/lordwelch/sshrimp/internal/config"
+	"git.narnian.us/lordwelch/sshrimp/internal/signer"
 	"github.com/sirupsen/logrus"
-	"github.com/stoggi/aws-oidc/provider"
-	"github.com/stoggi/sshrimp/internal/config"
-	"github.com/stoggi/sshrimp/internal/signer"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
@@ -125,7 +125,7 @@ func (r *sshrimpAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent
 			Log.Traceln("sha 512 requested")
 			s, err := sign.SignWithAlgorithm(rand.Reader, data, ssh.SigAlgoRSASHA2512)
 			if err == nil {
-				Log.Debugln("sha 512 available:", err)
+				Log.Debugln("sha 512 available")
 				return s, nil
 			}
 		}
@@ -133,7 +133,7 @@ func (r *sshrimpAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent
 			Log.Traceln("sha 256 requested")
 			s, err := sign.SignWithAlgorithm(rand.Reader, data, ssh.SigAlgoRSASHA2256)
 			if err == nil {
-				Log.Debugln("sha 256 available:", err)
+				Log.Debugln("sha 256 available")
 				return s, nil
 			}
 		}
