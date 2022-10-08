@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"git.narnian.us/lordwelch/sshrimp/internal/config"
-	"git.narnian.us/lordwelch/sshrimp/internal/identity"
 	"git.narnian.us/lordwelch/sshrimp/internal/signer"
 	"golang.org/x/crypto/ssh"
 )
@@ -56,14 +55,15 @@ func SSHrimp(w http.ResponseWriter, r *http.Request) {
 		httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusInternalServerError)}, http.StatusInternalServerError)
 		return
 	}
-	i, _ := identity.NewIdentity(c)
-	username, _ := i.Validate(event.Token)
-	cc := ssh.CertChecker{}
-	err = cc.CheckCert(username, &certificate)
-	if err != nil {
-		httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusInternalServerError)}, http.StatusBadRequest)
-		return
-	}
+
+	// i, _ := identity.NewIdentity(c)
+	// username, _ := i.Validate(event.Token)
+	// cc := ssh.CertChecker{}
+	// err = cc.CheckCert(username, &certificate)
+	// if err != nil {
+	// 	httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusInternalServerError)}, http.StatusBadRequest)
+	// 	return
+	// }
 
 	// Extract the public key (certificate) to return to the user
 	pubkey, err := ssh.ParsePublicKey(certificate.Marshal())

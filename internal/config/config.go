@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -22,6 +23,9 @@ type Agent struct {
 	ClientSecret   string
 	BrowserCommand []string
 	Socket         string
+	Scopes         []string
+	KeyPath        string
+	Port           int
 }
 
 // CertificateAuthority config for the sshrimp-ca lambda
@@ -33,8 +37,8 @@ type CertificateAuthority struct {
 	KeyAlias           string
 	ForceCommandRegex  string
 	SourceAddressRegex string
-	UsernameRegex      string
-	UsernameClaim      string
+	UsernameRegexs     []string
+	UsernameClaims     []string
 	ValidAfterOffset   string
 	ValidBeforeOffset  string
 	Extensions         []string
@@ -103,15 +107,16 @@ func NewSSHrimpWithDefaults() *SSHrimp {
 	sshrimp := SSHrimp{
 		Agent{
 			ProviderURL: "https://accounts.google.com",
-			Socket:      "/tmp/sshrimp.sock",
+			Socket:      "~/.ssh/sshrimp.toml",
+			Scopes:      []string{"openid", "email", "profile"},
 		},
 		CertificateAuthority{
 			FunctionName:       "sshrimp",
 			KeyAlias:           "alias/sshrimp",
 			ForceCommandRegex:  "^$",
 			SourceAddressRegex: "^$",
-			UsernameRegex:      `^(.*)@example\.com$`,
-			UsernameClaim:      "email",
+			UsernameRegexs:     []string{`^(.*)@example\.com$`},
+			UsernameClaims:     []string{"email"},
 			ValidAfterOffset:   "-5m",
 			ValidBeforeOffset:  "+12h",
 			Extensions: []string{
@@ -127,7 +132,7 @@ func NewSSHrimpWithDefaults() *SSHrimp {
 }
 
 // DefaultPath of the sshrimp config file
-var DefaultPath = "./sshrimp.toml"
+var DefaultPath = ".ssh/sshrimp.toml"
 
 // EnvVarName is the optional environment variable that if set overrides DefaultPath
 var EnvVarName = "SSHRIMP_CONFIG"
@@ -137,7 +142,8 @@ func GetPath() string {
 	if configPathFromEnv, ok := os.LookupEnv(EnvVarName); ok && configPathFromEnv != "" {
 		return configPathFromEnv
 	}
-	return DefaultPath
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, DefaultPath)
 }
 
 func validateInt(val interface{}) error {
@@ -245,7 +251,7 @@ func certificateAuthorityQuestions(config *SSHrimp) []*survey.Question {
 			Prompt: &survey.Input{
 				Message: "Username claim in JWT",
 				Help:    "Which claim in the JWT should be used as the username. See https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims",
-				Default: config.CertificateAuthority.UsernameClaim,
+				Default: config.CertificateAuthority.UsernameClaims[0],
 			},
 			Validate: survey.Required,
 		},
@@ -254,7 +260,7 @@ func certificateAuthorityQuestions(config *SSHrimp) []*survey.Question {
 			Prompt: &survey.Input{
 				Message: "Username regular expression",
 				Help:    "A regular expression to validate the username present in the identity token. The first matching group will be used as the username enforced in the certificate.",
-				Default: config.CertificateAuthority.UsernameRegex,
+				Default: config.CertificateAuthority.UsernameRegexs[0],
 			},
 			Validate: survey.Required,
 		},

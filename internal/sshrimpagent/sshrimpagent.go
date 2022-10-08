@@ -3,12 +3,15 @@ package sshrimpagent
 import (
 	"crypto/rand"
 	"errors"
+	"net/http"
+	"os"
 	"time"
 
-	"git.narnian.us/lordwelch/aws-oidc/provider"
 	"git.narnian.us/lordwelch/sshrimp/internal/config"
 	"git.narnian.us/lordwelch/sshrimp/internal/signer"
+	"github.com/pkg/browser"
 	"github.com/sirupsen/logrus"
+	"github.com/zitadel/oidc/pkg/oidc"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
@@ -16,39 +19,64 @@ import (
 var Log *logrus.Entry
 
 type sshrimpAgent struct {
-	providerConfig provider.ProviderConfig
-	signer         ssh.Signer
-	certificate    *ssh.Certificate
-	token          *provider.OAuth2Token
-	config         *config.SSHrimp
+	oidcClient  OidcClient
+	signer      ssh.Signer
+	certificate *ssh.Certificate
+	token       *oidc.Tokens
+	config      *config.SSHrimp
 }
 
 // NewSSHrimpAgent returns an agent.Agent capable of signing certificates with a SSHrimp Certificate Authority
-func NewSSHrimpAgent(c *config.SSHrimp, signer ssh.Signer) agent.Agent {
+func NewSSHrimpAgent(c *config.SSHrimp, signer ssh.Signer) (agent.Agent, error) {
 
-	providerConfig := provider.ProviderConfig{
-		ClientID:     c.Agent.ClientID,
-		ClientSecret: c.Agent.ClientSecret,
-		ProviderURL:  c.Agent.ProviderURL,
-		PKCE:         true,
-		Nonce:        true,
-		AgentCommand: c.Agent.BrowserCommand,
+	oidcClient, err := newOIDCClient(c)
+	if err != nil {
+		return nil, err
 	}
+
+	go func() {
+
+		if err = oidcClient.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			Log.Logger.Errorf("Server failed: %v", err)
+			os.Exit(99)
+		}
+	}()
 
 	return &sshrimpAgent{
-		providerConfig: providerConfig,
-		signer:         signer,
-		certificate:    &ssh.Certificate{},
-		token:          &provider.OAuth2Token{},
-		config:         c,
+		oidcClient:  oidcClient,
+		signer:      signer,
+		certificate: &ssh.Certificate{},
+		token:       nil,
+		config:      c,
+	}, nil
+}
+
+// authenticate authenticates a oidc token
+func (r *sshrimpAgent) authenticate() error {
+	var err error
+	if r.token != nil {
+		err = oidc.CheckExpiration(r.token.IDTokenClaims, 0)
+	} else {
+		err = errors.New("no token provided")
 	}
+	if err != nil {
+		Log.Debugln("Token is expired re-authenticating")
+		browser.OpenURL("http://" + r.oidcClient.Addr + "/login")
+		select {
+		case r.token = <-r.oidcClient.OIDCToken:
+			return nil
+		case <-time.After(30 * time.Second):
+			return errors.New("Timeout")
+		}
+	}
+	return err
 }
 
 // RemoveAll clears the current certificate and identity token (including refresh token)
 func (r *sshrimpAgent) RemoveAll() error {
 	Log.Debugln("Removing identity token and certificate")
 	r.certificate = &ssh.Certificate{}
-	r.token = &provider.OAuth2Token{}
+	r.token = nil
 	return nil
 }
 
@@ -75,7 +103,8 @@ func (r *sshrimpAgent) List() ([]*agent.Key, error) {
 	if r.certificate.ValidBefore != uint64(ssh.CertTimeInfinity) && (time.Now().After(validEndDate) || validEndDate.Unix() < 0) {
 		Log.Traceln("Certificate has expired")
 		Log.Traceln("authenticating token")
-		err := r.providerConfig.Authenticate(r.token)
+		err := r.authenticate()
+
 		if err != nil {
 			Log.Errorf("authenticating the token failed: %v", err)
 			return nil, err

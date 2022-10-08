@@ -12,14 +12,16 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
+
+	"errors"
 
 	"git.narnian.us/lordwelch/sshrimp/internal/config"
 	"git.narnian.us/lordwelch/sshrimp/internal/identity"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/lambda"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	"golang.org/x/crypto/ssh"
@@ -78,18 +80,18 @@ func SignCertificateGCP(publicKey ssh.PublicKey, token string, forceCommand stri
 
 	result, err := http.Post(fmt.Sprintf("https://%s-%s.cloudfunctions.net/%s", region, c.CertificateAuthority.Project, c.CertificateAuthority.FunctionName), "application/json", bytes.NewReader(payload))
 	if err != nil {
-		return nil, errors.Wrap(err, "http post failed: "+err.Error())
+		return nil, fmt.Errorf("http post failed: %w", err)
 	}
 	resbody, err := ioutil.ReadAll(result.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to retrieve the response from sshrimp-ca")
+		return nil, fmt.Errorf("failed to retrieve the response from sshrimp-ca: %w", err)
 	}
 
 	// Parse the result form the lambda to extract the certificate
 	sshrimpResult := SSHrimpResult{}
 	err = json.Unmarshal(resbody, &sshrimpResult)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to parse json response from sshrimp-ca.: "+string(resbody))
+		return nil, fmt.Errorf("failed to parse json response from sshrimp-ca: %w: %v", err, string(resbody))
 	}
 
 	if result.StatusCode != 200 {
@@ -143,7 +145,7 @@ func SignCertificateAWS(publicKey ssh.PublicKey, token string, forceCommand stri
 	sshrimpResult := SSHrimpResult{}
 	err = json.Unmarshal(result.Payload, &sshrimpResult)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to parse json response from sshrimp-ca")
+		return nil, fmt.Errorf("failed to parse json response from sshrimp-ca: %w", err)
 	}
 
 	// These error types and messages can also come from the aws-sdk-go lambda handler
@@ -168,7 +170,7 @@ func ValidateRequest(event SSHrimpEvent, c *config.SSHrimp, requestID string, fu
 
 	// Validate the user supplied identity token with the loaded configuration
 	i, _ := identity.NewIdentity(c)
-	username, err := i.Validate(event.Token)
+	usernames, err := i.Validate(event.Token)
 	if err != nil {
 		return ssh.Certificate{}, err
 	}
@@ -227,7 +229,7 @@ func ValidateRequest(event SSHrimpEvent, c *config.SSHrimp, requestID string, fu
 	// https://github.com/Netflix/bless
 	keyID := fmt.Sprintf("request[%s] for[%s] from[%s] command[%s] ssh_key[%s] ca[%s] valid_to[%s]",
 		requestID,
-		username,
+		strings.Join(usernames, ", "),
 		event.SourceAddress,
 		event.ForceCommand,
 		ssh.FingerprintSHA256(publicKey),
@@ -237,14 +239,12 @@ func ValidateRequest(event SSHrimpEvent, c *config.SSHrimp, requestID string, fu
 
 	// Create the certificate struct with all our configured alues
 	certificate := ssh.Certificate{
-		Nonce:    nonce,
-		Key:      publicKey,
-		Serial:   serial.Uint64(),
-		CertType: ssh.UserCert,
-		KeyId:    keyID,
-		ValidPrincipals: []string{
-			username,
-		},
+		Nonce:           nonce,
+		Key:             publicKey,
+		Serial:          serial.Uint64(),
+		CertType:        ssh.UserCert,
+		KeyId:           keyID,
+		ValidPrincipals: usernames,
 		Permissions: ssh.Permissions{
 			CriticalOptions: criticalOptions,
 			Extensions:      extensions,
