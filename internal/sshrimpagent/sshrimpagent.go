@@ -152,7 +152,7 @@ func (r *sshrimpAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent
 	if ok {
 		if flags&agent.SignatureFlagRsaSha512 == agent.SignatureFlagRsaSha512 {
 			Log.Traceln("sha 512 requested")
-			s, err := sign.SignWithAlgorithm(rand.Reader, data, ssh.SigAlgoRSASHA2512)
+			s, err := sign.SignWithAlgorithm(rand.Reader, data, ssh.KeyAlgoRSASHA512)
 			if err == nil {
 				Log.Debugln("sha 512 available")
 				return s, nil
@@ -160,7 +160,7 @@ func (r *sshrimpAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent
 		}
 		if flags&agent.SignatureFlagRsaSha256 == agent.SignatureFlagRsaSha256 {
 			Log.Traceln("sha 256 requested")
-			s, err := sign.SignWithAlgorithm(rand.Reader, data, ssh.SigAlgoRSASHA2256)
+			s, err := sign.SignWithAlgorithm(rand.Reader, data, ssh.KeyAlgoRSASHA256)
 			if err == nil {
 				Log.Debugln("sha 256 available")
 				return s, nil

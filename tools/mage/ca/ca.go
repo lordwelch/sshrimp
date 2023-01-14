@@ -87,10 +87,10 @@ func PackageGCP() error {
 	defer zipFile.Close()
 
 	err = gcpCreateArchive(zipFile, []ZipFiles{
-		ZipFiles{Filename: "go.mod"},
+		{Filename: "go.mod"},
 		{"gcp/gcp.go", "gcp.go"},
-		ZipFiles{Filename: "internal"},
-		ZipFiles{config.GetPath(), filepath.Base(config.GetPath())},
+		{Filename: "internal"},
+		{config.GetPath(), filepath.Base(config.GetPath())},
 	}...)
 
 	if err != nil {

@@ -35,7 +35,7 @@ func HandleRequest(ctx context.Context, event signer.SSHrimpEvent) (*signer.SSHr
 
 	// Setup our Certificate Authority signer backed by KMS
 	kmsSigner := signer.NewAWSSigner(c.CertificateAuthority.KeyAlias)
-	sshAlgorithmSigner, err := signer.NewAlgorithmSignerFromSigner(kmsSigner, ssh.SigAlgoRSASHA2256)
+	sshAlgorithmSigner, err := signer.NewAlgorithmSignerFromSigner(kmsSigner, ssh.KeyAlgoRSASHA256)
 	if err != nil {
 		return nil, err
 	}

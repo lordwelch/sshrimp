@@ -26,6 +26,7 @@ type Agent struct {
 	Scopes         []string
 	KeyPath        string
 	Port           int
+	Url            string
 }
 
 // CertificateAuthority config for the sshrimp-ca lambda
@@ -107,7 +108,7 @@ func NewSSHrimpWithDefaults() *SSHrimp {
 	sshrimp := SSHrimp{
 		Agent{
 			ProviderURL: "https://accounts.google.com",
-			Socket:      "~/.ssh/sshrimp.toml",
+			Socket:      "~/.ssh/sshrimp.sock",
 			Scopes:      []string{"openid", "email", "profile"},
 		},
 		CertificateAuthority{

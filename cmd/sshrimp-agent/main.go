@@ -28,7 +28,7 @@ import (
 
 var (
 	sigExit   = []os.Signal{os.Kill, os.Interrupt}
-	sigIgnore = []os.Signal{}
+	sigIgnore  []os.Signal
 	logger    = logrus.New()
 	log       *logrus.Entry
 	appname   = "sshrimp"
@@ -111,6 +111,18 @@ func setupLoging(config cfg) error {
 	return nil
 }
 
+func ExpandPath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+
+	if path[0] == '~' {
+		path = filepath.Join(home, path[1:])
+	}
+	return path
+}
+
 func main() {
 	var cli cfg
 	flag.StringVar(&cli.Config, "config", config.GetPath(), "sshrimp config file")
@@ -140,14 +152,14 @@ func launchAgent(c *config.SSHrimp) error {
 		err        error
 		listener   net.Listener
 		privateKey crypto.Signer
-		signer     ssh.Signer
+		sshSigner  ssh.Signer
 		logMessage string
 	)
 
 	log.Traceln("Creating socket")
-	if _, err = os.Stat(c.Agent.Socket); err == nil {
+	if _, err = os.Stat(ExpandPath(c.Agent.Socket)); err == nil {
 		log.Tracef("File already exists at %s", c.Agent.Socket)
-		conn, sockErr := net.Dial("unix", c.Agent.Socket)
+		conn, sockErr := net.Dial("unix", ExpandPath(c.Agent.Socket))
 		if conn == nil {
 			logMessage = "conn is nil"
 		}
@@ -168,7 +180,7 @@ func launchAgent(c *config.SSHrimp) error {
 	// This affects all files created for the process. Since this is a sensitive
 	// socket, only allow the current user to write to the socket.
 	syscall.Umask(0077)
-	listener, err = net.Listen("unix", c.Agent.Socket)
+	listener, err = net.Listen("unix", ExpandPath(c.Agent.Socket))
 	if err != nil {
 		return err
 	}
@@ -182,15 +194,15 @@ func launchAgent(c *config.SSHrimp) error {
 	if err != nil {
 		return err
 	}
-	log.Traceln("Creating new signer from key")
-	signer, err = ssh.NewSignerFromKey(privateKey)
+	log.Traceln("Creating new sshSigner from key")
+	sshSigner, err = ssh.NewSignerFromKey(privateKey)
 	if err != nil {
 		return err
 	}
 
-	// Create the sshrimp agent with our configuration and the private key signer
-	log.Traceln("Creating new sshrimp agent from signer and config")
-	sshrimpAgent, err := sshrimpagent.NewSSHrimpAgent(c, signer)
+	// Create the sshrimp agent with our configuration and the private key sshSigner
+	log.Traceln("Creating new sshrimp agent from sshSigner and config")
+	sshrimpAgent, err := sshrimpagent.NewSSHrimpAgent(c, sshSigner)
 	if err != nil {
 		log.Logger.Errorf("Failed to create sshrimpAgent: %v", err)
 	}

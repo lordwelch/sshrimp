@@ -44,7 +44,7 @@ func SSHrimp(w http.ResponseWriter, r *http.Request) {
 	// Setup our Certificate Authority signer backed by KMS
 	kmsSigner := signer.NewGCPSSigner(c.CertificateAuthority.KeyAlias)
 
-	sshAlgorithmSigner, err := signer.NewAlgorithmSignerFromSigner(kmsSigner, ssh.SigAlgoRSASHA2256)
+	sshAlgorithmSigner, err := signer.NewAlgorithmSignerFromSigner(kmsSigner, ssh.KeyAlgoRSASHA256)
 	if err != nil {
 		httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusBadRequest)}, http.StatusBadRequest)
 		return

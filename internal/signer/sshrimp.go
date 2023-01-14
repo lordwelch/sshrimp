@@ -78,7 +78,14 @@ func SignCertificateGCP(publicKey ssh.PublicKey, token string, forceCommand stri
 		return nil, err
 	}
 
-	result, err := http.Post(fmt.Sprintf("https://%s-%s.cloudfunctions.net/%s", region, c.CertificateAuthority.Project, c.CertificateAuthority.FunctionName), "application/json", bytes.NewReader(payload))
+	var uri string
+	if c.Agent.Url != "" {
+		uri = c.Agent.Url
+	} else {
+		uri = fmt.Sprintf("https://%s-%s.cloudfunctions.net/%s", region, c.CertificateAuthority.Project, c.CertificateAuthority.FunctionName)
+	}
+
+	result, err := http.Post(uri, "application/json", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("http post failed: %w", err)
 	}
@@ -114,10 +121,10 @@ func SignCertificateGCP(publicKey ssh.PublicKey, token string, forceCommand stri
 // SignCertificateAWS given a public key, identity token and forceCommand, invoke the sshrimp-ca lambda function
 func SignCertificateAWS(publicKey ssh.PublicKey, token string, forceCommand string, region string, c *config.SSHrimp) (*ssh.Certificate, error) {
 	// Create a lambdaService using the new temporary credentials for the role
-	session := session.Must(session.NewSession(&aws.Config{
+	sess := session.Must(session.NewSession(&aws.Config{
 		Region: aws.String(region),
 	}))
-	lambdaService := lambda.New(session)
+	lambdaService := lambda.New(sess)
 
 	// Setup the JSON payload for the SSHrimp CA
 	payload, err := json.Marshal(SSHrimpEvent{
@@ -193,12 +200,12 @@ func ValidateRequest(event SSHrimpEvent, c *config.SSHrimp, requestID string, fu
 	}
 
 	// Generate a random nonce for the certificate
-	bytes := make([]byte, 32)
-	nonce := make([]byte, len(bytes)*2)
-	if _, err := rand.Read(bytes); err != nil {
+	nonceHex := make([]byte, 32)
+	nonce := make([]byte, len(nonceHex)*2)
+	if _, err := rand.Read(nonceHex); err != nil {
 		return ssh.Certificate{}, err
 	}
-	hex.Encode(nonce, bytes)
+	hex.Encode(nonce, nonceHex)
 
 	// Generate a random serial number
 	serial, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))

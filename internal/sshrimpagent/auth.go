@@ -95,7 +95,7 @@ func (o *OidcClient) setupHandlers() error {
 
 	provider, err := rp.NewRelyingPartyOIDC(o.Agent.ProviderURL, o.Agent.ClientID, o.Agent.ClientSecret, redirectURI.String(), o.Agent.Scopes, options...)
 	if err != nil {
-		return fmt.Errorf("Error creating provider: %w", err)
+		return fmt.Errorf("error creating provider: %w", err)
 	}
 
 	// generate some state (representing the state of the user in your application,
