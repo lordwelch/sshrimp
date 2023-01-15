@@ -19,7 +19,7 @@ import (
 var Log *logrus.Entry
 
 type sshrimpAgent struct {
-	oidcClient  OidcClient
+	oidcClient  *OidcClient
 	signer      ssh.Signer
 	certificate *ssh.Certificate
 	token       *oidc.Tokens
@@ -76,6 +76,7 @@ func (r *sshrimpAgent) authenticate() error {
 func (r *sshrimpAgent) RemoveAll() error {
 	Log.Debugln("Removing identity token and certificate")
 	r.certificate = &ssh.Certificate{}
+	r.oidcClient.Certificate = r.certificate
 	r.token = nil
 	return nil
 }
@@ -117,6 +118,7 @@ func (r *sshrimpAgent) List() ([]*agent.Key, error) {
 			return nil, err
 		}
 		r.certificate = cert
+		r.oidcClient.Certificate = r.certificate
 	}
 
 	var ids []*agent.Key
