@@ -2,8 +2,6 @@ module git.narnian.us/lordwelch/sshrimp
 
 go 1.18
 
-replace github.com/b-b3rn4rd/gocfn => github.com/stoggi/gocfn v0.0.0-20200214083946-6202cea979b9
-
 require (
 	cloud.google.com/go/kms v1.4.0
 	github.com/AlecAivazis/survey/v2 v2.3.6
