@@ -28,7 +28,7 @@ import (
 
 var (
 	sigExit   = []os.Signal{os.Kill, os.Interrupt}
-	sigIgnore  []os.Signal
+	sigIgnore []os.Signal
 	logger    = logrus.New()
 	log       *logrus.Entry
 	appname   = "sshrimp"
@@ -104,7 +104,6 @@ func setupLoging(config cfg) error {
 	log = logger.WithFields(logrus.Fields{
 		"pid": os.Getpid(),
 	})
-	log.Logger.Info("testing")
 
 	sshrimpagent.Log = log
 	signer.Log = log
@@ -132,58 +131,73 @@ func main() {
 
 	flag.Parse()
 
-	if err := setupLoging(cli); err != nil {
-		logger.Warnf("Error setting up logging: %v", err)
-	}
-
 	c := config.NewSSHrimpWithDefaults()
 	err := c.Read(cli.Config)
 	if err != nil {
 		panic(err)
 	}
-	err = launchAgent(c)
+	listener := openSocket(c)
+	if listener == nil {
+		logger.Errorln("Failed to open socket")
+		return
+	}
+	if err := setupLoging(cli); err != nil {
+		logger.Warnf("Error setting up logging: %v", err)
+	}
+	err = launchAgent(c, listener)
 	if err != nil {
 		panic(err)
 	}
 }
 
-func launchAgent(c *config.SSHrimp) error {
+func openSocket(c *config.SSHrimp) net.Listener {
 	var (
-		err        error
 		listener   net.Listener
-		privateKey crypto.Signer
-		sshSigner  ssh.Signer
+		err        error
 		logMessage string
+		socketPath = ExpandPath(c.Agent.Socket)
 	)
 
-	log.Traceln("Creating socket")
-	if _, err = os.Stat(ExpandPath(c.Agent.Socket)); err == nil {
-		log.Tracef("File already exists at %s", c.Agent.Socket)
-		conn, sockErr := net.Dial("unix", ExpandPath(c.Agent.Socket))
+	if _, err = os.Stat(socketPath); err == nil {
+		fmt.Println("Creating socket")
+		fmt.Printf("File already exists at %s\n", c.Agent.Socket)
+		conn, sockErr := net.Dial("unix", socketPath)
 		if conn == nil {
 			logMessage = "conn is nil"
 		}
 		if sockErr == nil { // socket is accepting connections
 			logMessage += "err reports successful connection"
 			conn.Close()
-			log.Errorf("Socket connected successfully %s", logMessage)
-			return fmt.Errorf("socket %s already exists", c.Agent.Socket)
+			fmt.Printf("socket %s already exists\n", c.Agent.Socket)
+			return nil
 		}
-		log.Tracef("Socket is not connected %s", logMessage)
-		if os.Remove(c.Agent.Socket) == nil { // socket is not accepting connections, assuming safe to remove
-			log.Traceln("Deleting socket: success")
+		fmt.Printf("Socket is not connected %s\n", logMessage)
+		err = os.Remove(socketPath)
+		if err == nil { // socket is not accepting connections, assuming safe to remove
+			fmt.Println("Deleting socket: success")
 		} else {
-			log.Errorf("Deleting socket: fail")
+			fmt.Println("Deleting socket: fail", err)
+			return nil
 		}
 	}
 
 	// This affects all files created for the process. Since this is a sensitive
 	// socket, only allow the current user to write to the socket.
 	syscall.Umask(0077)
-	listener, err = net.Listen("unix", ExpandPath(c.Agent.Socket))
+	listener, err = net.Listen("unix", socketPath)
 	if err != nil {
-		return err
+		fmt.Println("Error opening socket:", err)
+		return nil
 	}
+	return listener
+}
+
+func launchAgent(c *config.SSHrimp, listener net.Listener) error {
+	var (
+		err        error
+		privateKey crypto.Signer
+		sshSigner  ssh.Signer
+	)
 	defer listener.Close()
 
 	fmt.Printf("listening on %s\n", c.Agent.Socket)
