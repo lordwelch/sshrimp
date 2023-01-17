@@ -176,7 +176,10 @@ func ValidateRequest(event SSHrimpEvent, c *config.SSHrimp, requestID string, fu
 	}
 
 	// Validate the user supplied identity token with the loaded configuration
-	i, _ := identity.NewIdentity(c)
+	i, err := identity.NewIdentity(c)
+	if err != nil {
+		return ssh.Certificate{}, err
+	}
 	usernames, err := i.Validate(event.Token)
 	if err != nil {
 		return ssh.Certificate{}, err
