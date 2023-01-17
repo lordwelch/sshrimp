@@ -2,11 +2,12 @@ package sshrimpagent
 
 import (
 	"fmt"
-	"golang.org/x/crypto/ssh"
 	"net"
 	"net/http"
 	"net/url"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"git.narnian.us/lordwelch/sshrimp/internal/config"
 	"github.com/google/uuid"
