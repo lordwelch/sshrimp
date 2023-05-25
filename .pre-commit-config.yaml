@@ -1,0 +1,28 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+    -   id: trailing-whitespace
+        args: [--markdown-linebreak-ext=.gitignore]
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+-   repo: local
+    hooks:
+    -   id: go-imports
+        name: goimports
+        entry: goimports
+        args: [-w, -l]
+        language: golang
+        types: [go]
+        additional_dependencies: [golang.org/x/tools/cmd/goimports@latest]
+    -   id: go-mod-tidy
+        name: go mod tidy
+        entry: go mod tidy
+        language: golang
+        types: [go-mod]
+        always_run: true
+        pass_filenames: false
+-   repo: https://github.com/golangci/golangci-lint
+    rev: v1.52.2
+    hooks:
+    -   id: golangci-lint

@@ -61,7 +61,7 @@ func (r *sshrimpAgent) authenticate() error {
 	}
 	if err != nil {
 		Log.Debugln("Token is expired re-authenticating")
-		browser.OpenURL("http://" + r.oidcClient.Addr + "/login")
+		_ = browser.OpenURL("http://" + r.oidcClient.Addr + "/login")
 		select {
 		case r.token = <-r.oidcClient.OIDCToken:
 			return nil

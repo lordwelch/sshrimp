@@ -459,7 +459,7 @@ func Wizard(configPath string, config *SSHrimp) (string, error) {
 	}
 
 	// Write the new configuration to a file
-	newConfig.Write(configPath)
+	err = newConfig.Write(configPath)
 
-	return configPath, nil
+	return configPath, err
 }

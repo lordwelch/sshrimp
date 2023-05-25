@@ -166,7 +166,6 @@ func openSocket(c *config.SSHrimp) net.Listener {
 			logMessage = "conn is nil"
 		}
 		if sockErr == nil { // socket is accepting connections
-			logMessage += "err reports successful connection"
 			conn.Close()
 			fmt.Printf("socket %s already exists\n", c.Agent.Socket)
 			return nil
@@ -225,7 +224,7 @@ func launchAgent(c *config.SSHrimp, listener net.Listener) error {
 	log.Debugf("Ignoring signals: %v", sigIgnore)
 	signal.Ignore(sigIgnore...)
 	log.Debugf("Exiting on signals: %v", sigExit)
-	osSignals := make(chan os.Signal)
+	osSignals := make(chan os.Signal, 10)
 	signal.Notify(osSignals, sigExit...)
 	go func() {
 		<-osSignals

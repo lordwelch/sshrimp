@@ -6,11 +6,11 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"fmt"
 	"io"
+	"log"
 
 	kms "cloud.google.com/go/kms/apiv1"
-	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
+	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 )
 
 // GCPSigner a GCP asymetric crypto signer
@@ -42,7 +42,7 @@ func (s *GCPSigner) Public() crypto.PublicKey {
 		Name: s.key,
 	})
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Print(err.Error())
 		return nil
 	}
 	switch response.GetAlgorithm() {
@@ -52,7 +52,7 @@ func (s *GCPSigner) Public() crypto.PublicKey {
 		kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA512:
 		// awesome
 	default:
-		fmt.Println("crypto key has the wrong algorithm, must be rsa with PKCS1 padding")
+		log.Print("crypto key has the wrong algorithm, must be rsa with PKCS1 padding")
 		return nil
 	}
 
@@ -62,7 +62,7 @@ func (s *GCPSigner) Public() crypto.PublicKey {
 
 	publicKey, err := x509.ParsePKIXPublicKey(pemBlock.Bytes)
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Print(err.Error())
 		return nil
 	}
 

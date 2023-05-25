@@ -3,8 +3,8 @@ package signer
 import (
 	"crypto"
 	"crypto/x509"
-	"fmt"
 	"io"
+	"log"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -37,13 +37,13 @@ func (s *AWSSigner) Public() crypto.PublicKey {
 		KeyId: &s.key,
 	})
 	if err != nil {
-		fmt.Printf(err.Error())
+		log.Print(err.Error())
 		return nil
 	}
 
 	publicKey, err := x509.ParsePKIXPublicKey(response.PublicKey)
 	if err != nil {
-		fmt.Printf(err.Error())
+		log.Print(err.Error())
 		return nil
 	}
 
