@@ -98,14 +98,26 @@ func (i *Identity) getUsernames(idToken *oidc.IDToken) ([]string, error) {
 
 		claimedUsernames := getClaim(claim, claims)
 
+		if len(claimedUsernames) == 0 {
+			log.Println(Entry{
+				Severity: "NOTICE",
+				Message:  fmt.Sprintf("Did not find a username using: getClaim(%#v, %#v)", claim, claims),
+			})
+		}
+
 		if idx < len(i.usernameREs) {
 			for _, name := range claimedUsernames {
 				usernames = append(usernames, parseUsername(name, i.usernameREs[idx]))
 			}
 		} else {
 			usernames = append(usernames, claimedUsernames...)
+
 		}
 	}
+	log.Println(Entry{
+		Severity: "NOTICE",
+		Message:  fmt.Sprintf("Adding usernames: %v", usernames),
+	})
 	if len(usernames) < 1 {
 		return nil, errors.New("configured username claim not in identity token")
 	}
@@ -124,20 +136,6 @@ func getClaim(claim string, claims map[string]interface{}) []string {
 	parts := strings.Split(claim, ".")
 f:
 	for idx, part := range parts {
-		if idx == len(parts)-1 {
-			name, ok := claims[part].(string)
-			if ok {
-				usernames = append(usernames, name)
-			}
-			return base64Decode(usernames)
-		}
-
-		fmt.Println(part)
-		log.Println(Entry{
-			Severity:  "NOTICE",
-			Message:   fmt.Sprintf("Fuck Off: %v", claims),
-			Component: part,
-		})
 		switch v := claims[part].(type) {
 		case map[string]interface{}:
 			claims = v
@@ -149,6 +147,15 @@ f:
 				}
 			}
 			break f
+		case []interface{}:
+			for _, value := range v {
+				if name, ok := value.(string); ok {
+					usernames = append(usernames, name)
+				}
+			}
+			break f
+		case string:
+			usernames = append(usernames, v)
 		default:
 			break f
 		}
