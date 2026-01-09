@@ -123,8 +123,12 @@ func ExpandPath(path string) string {
 }
 
 func main() {
+	defaultConfigPath := "~/.ssh/sshrimp.toml"
+	if configPathFromEnv, ok := os.LookupEnv("SSHRIMP_CONFIG"); ok && configPathFromEnv != "" {
+		defaultConfigPath = configPathFromEnv
+	}
 	var cli cfg
-	flag.StringVar(&cli.Config, "config", config.GetPath(), "sshrimp config file")
+	flag.StringVar(&cli.Config, "config", defaultConfigPath, "sshrimp config file")
 	flag.StringVar(&cli.LogDirectory, "log", getLogDir(), "sshrimp log directory")
 	flag.BoolVar(&cli.Verbose, "v", false, "enable verbose logging")
 	fmt.Println(getLogDir())
@@ -132,11 +136,11 @@ func main() {
 	flag.Parse()
 
 	c := config.NewSSHrimpWithDefaults()
-	err := c.Read(cli.Config)
+	err := c.Read(ExpandPath(cli.Config))
 	if err != nil {
 		panic(err)
 	}
-	listener := openSocket(c)
+	listener := openSocket(ExpandPath(c.Agent.Socket))
 	if listener == nil {
 		logger.Errorln("Failed to open socket")
 		return
@@ -150,24 +154,23 @@ func main() {
 	}
 }
 
-func openSocket(c *config.SSHrimp) net.Listener {
+func openSocket(socketPath string) net.Listener {
 	var (
 		listener   net.Listener
 		err        error
 		logMessage string
-		socketPath = ExpandPath(c.Agent.Socket)
 	)
 
 	if _, err = os.Stat(socketPath); err == nil {
 		fmt.Println("Creating socket")
-		fmt.Printf("File already exists at %s\n", c.Agent.Socket)
+		fmt.Printf("File already exists at %s\n", socketPath)
 		conn, sockErr := net.Dial("unix", socketPath)
 		if conn == nil {
 			logMessage = "conn is nil"
 		}
 		if sockErr == nil { // socket is accepting connections
 			conn.Close()
-			fmt.Printf("socket %s already exists\n", c.Agent.Socket)
+			fmt.Printf("socket %s already exists\n", socketPath)
 			return nil
 		}
 		fmt.Printf("Socket is not connected %s\n", logMessage)
@@ -182,7 +185,7 @@ func openSocket(c *config.SSHrimp) net.Listener {
 
 	// This affects all files created for the process. Since this is a sensitive
 	// socket, only allow the current user to write to the socket.
-	syscall.Umask(0077)
+	syscall.Umask(0o077)
 	listener, err = net.Listen("unix", socketPath)
 	if err != nil {
 		fmt.Println("Error opening socket:", err)

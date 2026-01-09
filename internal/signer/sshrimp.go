@@ -6,12 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math"
 	"math/big"
 	"net/http"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -19,9 +18,6 @@ import (
 
 	"git.narnian.us/lordwelch/sshrimp/internal/config"
 	"git.narnian.us/lordwelch/sshrimp/internal/identity"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/sirupsen/logrus"
 
 	"golang.org/x/crypto/ssh"
@@ -44,21 +40,16 @@ type SSHrimpEvent struct {
 	ForceCommand  string `json:"forcecommand"`
 }
 
-// SignCertificateAllRegions iterate through each configured region if there is an error signing the certificate
-func SignCertificateAllRegions(publicKey ssh.PublicKey, token string, forceCommand string, c *config.SSHrimp) (*ssh.Certificate, error) {
+// SignCertificateAllURLs iterate through each configured url if there is an error signing the certificate
+func SignCertificateAllURLs(publicKey ssh.PublicKey, token string, forceCommand string, urls []string) (*ssh.Certificate, error) {
 	var (
 		err  error
 		cert *ssh.Certificate
 	)
 
-	// Try each configured region before exiting if there is an error
-
-	for _, region := range c.CertificateAuthority.Regions {
-		if i := sort.SearchStrings(config.SupportedAwsRegions, region); i < len(config.SupportedAwsRegions) && config.SupportedAwsRegions[i] == region {
-			cert, err = SignCertificateAWS(publicKey, token, forceCommand, region, c)
-		} else if i := sort.SearchStrings(config.SupportedGcpRegions, region); i < len(config.SupportedGcpRegions) && config.SupportedGcpRegions[i] == region {
-			cert, err = SignCertificateGCP(publicKey, token, forceCommand, region, c)
-		}
+	// Try each configured url before exiting if there is an error
+	for _, url := range urls {
+		cert, err = SignCertificate(publicKey, token, forceCommand, url)
 		if err == nil {
 			return cert, nil
 		}
@@ -66,8 +57,8 @@ func SignCertificateAllRegions(publicKey ssh.PublicKey, token string, forceComma
 	return nil, err
 }
 
-// SignCertificateGCP given a public key, identity token and forceCommand, invoke the sshrimp-ca GCP function
-func SignCertificateGCP(publicKey ssh.PublicKey, token string, forceCommand string, region string, c *config.SSHrimp) (*ssh.Certificate, error) {
+// SignCertificate given a public key, identity token and forceCommand, invoke the sshrimp-ca GCP function
+func SignCertificate(publicKey ssh.PublicKey, token string, forceCommand string, url string) (*ssh.Certificate, error) {
 	// Setup the JSON payload for the SSHrimp CA
 	payload, err := json.Marshal(SSHrimpEvent{
 		PublicKey:    string(ssh.MarshalAuthorizedKey(publicKey)),
@@ -79,17 +70,12 @@ func SignCertificateGCP(publicKey ssh.PublicKey, token string, forceCommand stri
 	}
 
 	var uri string
-	if c.Agent.Url != "" {
-		uri = c.Agent.Url
-	} else {
-		uri = fmt.Sprintf("https://%s-%s.cloudfunctions.net/%s", region, c.CertificateAuthority.Project, c.CertificateAuthority.FunctionName)
-	}
 
 	result, err := http.Post(uri, "application/json", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("http post failed: %w", err)
 	}
-	resbody, err := ioutil.ReadAll(result.Body)
+	resbody, err := io.ReadAll(result.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve the response from sshrimp-ca: %w", err)
 	}
@@ -118,55 +104,6 @@ func SignCertificateGCP(publicKey ssh.PublicKey, token string, forceCommand stri
 	return cert.(*ssh.Certificate), nil
 }
 
-// SignCertificateAWS given a public key, identity token and forceCommand, invoke the sshrimp-ca lambda function
-func SignCertificateAWS(publicKey ssh.PublicKey, token string, forceCommand string, region string, c *config.SSHrimp) (*ssh.Certificate, error) {
-	// Create a lambdaService using the new temporary credentials for the role
-	sess := session.Must(session.NewSession(&aws.Config{
-		Region: aws.String(region),
-	}))
-	lambdaService := lambda.New(sess)
-
-	// Setup the JSON payload for the SSHrimp CA
-	payload, err := json.Marshal(SSHrimpEvent{
-		PublicKey:    string(ssh.MarshalAuthorizedKey(publicKey)),
-		Token:        token,
-		ForceCommand: forceCommand,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Invoke the SSHrimp lambda
-	result, err := lambdaService.Invoke(&lambda.InvokeInput{
-		FunctionName: aws.String(c.CertificateAuthority.FunctionName),
-		Payload:      payload,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if *result.StatusCode != 200 {
-		return nil, fmt.Errorf("sshrimp returned status code %d", *result.StatusCode)
-	}
-
-	// Parse the result form the lambda to extract the certificate
-	sshrimpResult := SSHrimpResult{}
-	err = json.Unmarshal(result.Payload, &sshrimpResult)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse json response from sshrimp-ca: %w", err)
-	}
-
-	// These error types and messages can also come from the aws-sdk-go lambda handler
-	if sshrimpResult.ErrorType != "" || sshrimpResult.ErrorMessage != "" {
-		return nil, fmt.Errorf("%s: %s", sshrimpResult.ErrorType, sshrimpResult.ErrorMessage)
-	}
-
-	// Parse the certificate received by sshrimp-ca
-	cert, _, _, _, err := ssh.ParseAuthorizedKey([]byte(sshrimpResult.Certificate))
-	if err != nil {
-		return nil, err
-	}
-	return cert.(*ssh.Certificate), nil
-}
 
 func ValidateRequest(event SSHrimpEvent, c *config.SSHrimp, requestID string, functionID string) (ssh.Certificate, error) {
 	// Validate the user supplied public key

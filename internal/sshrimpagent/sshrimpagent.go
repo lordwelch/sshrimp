@@ -60,7 +60,7 @@ func (r *sshrimpAgent) authenticate() error {
 		err = errors.New("no token provided")
 	}
 	if err != nil {
-		Log.Debugln("Token is expired re-authenticating")
+		Log.Debugln("Token is expired re-authenticating http://" + r.oidcClient.Addr + "/login")
 		_ = browser.OpenURL("http://" + r.oidcClient.Addr + "/login")
 		select {
 		case r.token = <-r.oidcClient.OIDCToken:
@@ -112,7 +112,7 @@ func (r *sshrimpAgent) List() ([]*agent.Key, error) {
 		}
 
 		Log.Traceln("signing certificate")
-		cert, err := signer.SignCertificateAllRegions(r.signer.PublicKey(), r.token.IDToken, "", r.config)
+		cert, err := signer.SignCertificateAllURLs(r.signer.PublicKey(), r.token.IDToken, "", r.config.Agent.CAUrls)
 		if err != nil {
 			Log.Errorf("signing certificate failed: %v", err)
 			return nil, err

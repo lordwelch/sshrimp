@@ -81,8 +81,6 @@ func (o *OidcClient) setupHandlers() error {
 	redirectURI.Path = "/auth/callback"
 	successURI := o.baseURI()
 	successURI.Path = "/success"
-	// failURI := o.baseURI()
-	// failURI.RawQuery = url.Values{"auth":[]string{"fail"}}.Encode()
 
 	cookieHandler := httphelper.NewCookieHandler(key, key, httphelper.WithUnsecure())
 
@@ -90,9 +88,7 @@ func (o *OidcClient) setupHandlers() error {
 		rp.WithCookieHandler(cookieHandler),
 		rp.WithVerifierOpts(rp.WithIssuedAtOffset(5 * time.Second)),
 	}
-	if o.Agent.ClientSecret == "" {
-		options = append(options, rp.WithPKCE(cookieHandler))
-	}
+	options = append(options, rp.WithPKCE(cookieHandler))
 	if o.Agent.KeyPath != "" {
 		options = append(options, rp.WithJWTProfile(rp.SignerFromKeyPath(o.Agent.KeyPath)))
 	}
