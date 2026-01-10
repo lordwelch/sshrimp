@@ -156,6 +156,9 @@ func main() {
 
 	flag.Parse()
 	sshCommand := flag.Args()
+	if cli.Verbose {
+		logger.SetLevel(logrus.DebugLevel)
+	}
 
 	cfgFile := ExpandPath(cli.Config)
 	cfgFile, err = filepath.Abs(cfgFile)
@@ -175,7 +178,7 @@ func main() {
 		logger.Println("Launching agent")
 		main2(cli, c)
 	} else {
-		logger.Println("Attempting to start daemon")
+		logger.Debug("Attempting to start daemon")
 		var nullFile *os.File
 		nullFile, err = os.Open(os.DevNull)
 		if err != nil {
@@ -200,6 +203,7 @@ func main() {
 			panic(err)
 		}
 		nullFile.Close()
+		logger.Debugf("Agent started in the background check %s for logs", getLogDir())
 	}
 	if len(sshCommand) > 1 && filepath.Base(sshCommand[0]) == "ssh" {
 		syscall.Exec(sshCommand[0], sshCommand, os.Environ())
@@ -358,8 +362,9 @@ func launchAgent(c *config.SSHrimp, listener net.Listener) error {
 	osSignals := make(chan os.Signal, 10)
 	signal.Notify(osSignals, sigExit...)
 	go func() {
-		<-osSignals
-		listener.Close()
+		sig := <-osSignals
+		log.Infof("Recieved signal %v: closing", sig)
+		os.Exit(0)
 	}()
 
 	log.Traceln("Starting main loop")
