@@ -2,6 +2,7 @@ package sshrimpagent
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -18,9 +19,7 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-var (
-	key = []byte(uuid.New().String())[:16]
-)
+var hashKey = []byte(uuid.New().String())[:16]
 
 type OidcClient struct {
 	ListenAddress string
@@ -82,8 +81,16 @@ func (o *OidcClient) setupHandlers() error {
 	redirectURI.Path = "/auth/callback"
 	successURI := o.baseURI()
 	successURI.Path = "/success"
+	var CAKey []byte
+	resp, err := sshrimp_http.Client.Get(o.Agent.CAUrls[0])
+	if err == nil && resp.Header.Get("Content-Type") == "text/x-ssh-public-key" {
+		CAKey, err = io.ReadAll(resp.Body)
+		if err != nil {
+			CAKey = []byte{}
+		}
+	}
 
-	cookieHandler := httphelper.NewCookieHandler(key, key, httphelper.WithUnsecure())
+	cookieHandler := httphelper.NewCookieHandler(hashKey, nil)
 
 	options := []rp.Option{
 		rp.WithCookieHandler(cookieHandler),
@@ -112,19 +119,34 @@ func (o *OidcClient) setupHandlers() error {
 	o.oidcMux.Handle("/login", rp.AuthURLHandler(state, provider))
 	o.oidcMux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if o.Certificate != nil && o.Certificate.SignatureKey != nil {
-			fmt.Fprintf(w, "The SSH CA currently in use is:\n%s", ssh.MarshalAuthorizedKey(o.Certificate.SignatureKey))
-			Log.Printf("The SSH CA currently in use is:\n%s", ssh.MarshalAuthorizedKey(o.Certificate.SignatureKey))
+			key := ssh.MarshalAuthorizedKey(o.Certificate.SignatureKey)
+			if len(CAKey) < 3 {
+				CAKey = key
+			}
+			if !slices.Equal(key, CAKey) {
+				Log.Errorf("Certificate Authority key has changed from %#v to %#v", string(CAKey), string(key))
+				fmt.Fprintf(w, "\n\nCertificate Authority key has changed from \n%#v\nto \n%#v", string(CAKey), string(key))
+			}
 		}
+		fmt.Fprintf(w, "The SSH CA currently in use is:\n%s", CAKey)
+		Log.Printf("The SSH CA currently in use is:\n%s", CAKey)
 	}))
 	o.oidcMux.Handle(successURI.Path, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "Return to the CLI.")
 		if o.Certificate != nil && o.Certificate.SignatureKey != nil {
-			fmt.Fprintf(w, "The SSH CA currently in use is: %s", ssh.MarshalAuthorizedKey(o.Certificate.SignatureKey))
-			Log.Printf("The SSH CA currently in use is:\n%s", ssh.MarshalAuthorizedKey(o.Certificate.SignatureKey))
+			key := ssh.MarshalAuthorizedKey(o.Certificate.SignatureKey)
+			if len(CAKey) < 3 {
+				CAKey = key
+			}
+			if !slices.Equal(key, CAKey) {
+				Log.Errorf("Certificate Authority key has changed from %#v to %#v", string(CAKey), string(key))
+				fmt.Fprintf(w, "\n\nCertificate Authority key has changed from \n%#v\nto \n%#v", string(CAKey), string(key))
+			}
 		}
+		fmt.Fprintf(w, "The SSH CA currently in use is: %s", CAKey)
+		Log.Printf("The SSH CA currently in use is:\n%s", CAKey)
 	}))
 
-	// for demonstration purposes the returned userinfo response is written as JSON object onto response
 	marshalUserinfo := func(w http.ResponseWriter, r *http.Request, tokens *oidc.Tokens, state string, rp rp.RelyingParty) {
 		o.OIDCToken <- tokens
 		w.Header().Add("location", successURI.String())
