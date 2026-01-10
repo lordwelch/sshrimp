@@ -60,7 +60,7 @@ func (i *Identity) Validate(token string) ([]string, error) {
 }
 
 func (i *Identity) getUsernames(idToken *oidc.IDToken) ([]string, error) {
-	var claims map[string]interface{}
+	var claims map[string]any
 	if err := idToken.Claims(&claims); err != nil {
 		return nil, errors.New("failed to parse claims: " + err.Error())
 	}
@@ -96,13 +96,13 @@ func parseUsername(username string, re *regexp.Regexp) string {
 	return ""
 }
 
-func (i *Identity) getClaim(claim string, claims map[string]interface{}) []string {
+func (i *Identity) getClaim(claim string, claims map[string]any) []string {
 	usernames := make([]string, 0, 2)
 	parts := strings.Split(claim, ".")
 f:
 	for idx, part := range parts {
 		switch v := claims[part].(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			claims = v
 		case []map[string]string:
 			for _, claimItem := range v {
@@ -112,7 +112,7 @@ f:
 				}
 			}
 			break f
-		case []interface{}:
+		case []any:
 			for _, value := range v {
 				if name, ok := value.(string); ok {
 					usernames = append(usernames, name)

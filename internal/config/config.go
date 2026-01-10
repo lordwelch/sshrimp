@@ -88,7 +88,7 @@ func NewSSHrimpWithDefaults() *SSHrimp {
 	return &sshrimp
 }
 
-func validateInt(val interface{}) error {
+func validateInt(val any) error {
 	if str, ok := val.(string); ok {
 		if _, err := strconv.Atoi(str); err != nil {
 			return err
@@ -100,7 +100,7 @@ func validateInt(val interface{}) error {
 	return nil
 }
 
-func validateURL(val interface{}) error {
+func validateURL(val any) error {
 	if str, ok := val.(string); ok {
 		if _, err := url.ParseRequestURI(str); err != nil {
 			return err
@@ -112,7 +112,7 @@ func validateURL(val interface{}) error {
 	return nil
 }
 
-func validateDuration(val interface{}) error {
+func validateDuration(val any) error {
 	if str, ok := val.(string); ok {
 		if _, err := time.ParseDuration(str); err != nil {
 			return err
@@ -124,7 +124,7 @@ func validateDuration(val interface{}) error {
 	return nil
 }
 
-func validateAlias(val interface{}) error {
+func validateAlias(val any) error {
 	if str, ok := val.(string); ok {
 		if !strings.HasPrefix(str, "alias/") {
 			return errors.New("KMS alias must begin with alias/")

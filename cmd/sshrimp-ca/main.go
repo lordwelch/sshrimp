@@ -24,7 +24,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func httpError(w http.ResponseWriter, v interface{}, statusCode int) {
+func httpError(w http.ResponseWriter, v any, statusCode int) {
 	var b bytes.Buffer
 	e := json.NewEncoder(&b)
 	_ = e.Encode(v)
