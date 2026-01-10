@@ -4,11 +4,10 @@ import (
 	"crypto/rand"
 	"errors"
 	"net/http"
-	"os"
 	"time"
 
-	"git.narnian.us/lordwelch/sshrimp/internal/config"
-	"git.narnian.us/lordwelch/sshrimp/internal/signer"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/config"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/signer"
 	"github.com/pkg/browser"
 	"github.com/sirupsen/logrus"
 	"github.com/zitadel/oidc/pkg/oidc"
@@ -28,17 +27,16 @@ type sshrimpAgent struct {
 
 // NewSSHrimpAgent returns an agent.Agent capable of signing certificates with a SSHrimp Certificate Authority
 func NewSSHrimpAgent(c *config.SSHrimp, signer ssh.Signer) (agent.Agent, error) {
-
 	oidcClient, err := newOIDCClient(c)
 	if err != nil {
 		return nil, err
 	}
 
 	go func() {
-
-		if err = oidcClient.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			Log.Logger.Errorf("Server failed: %v", err)
-			os.Exit(99)
+		for {
+			if err = oidcClient.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+				Log.Logger.Errorf("Server failed: %v", err)
+			}
 		}
 	}()
 
@@ -105,7 +103,6 @@ func (r *sshrimpAgent) List() ([]*agent.Key, error) {
 		Log.Traceln("Certificate has expired")
 		Log.Traceln("authenticating token")
 		err := r.authenticate()
-
 		if err != nil {
 			Log.Errorf("authenticating the token failed: %v", err)
 			return nil, err
@@ -172,6 +169,7 @@ func (r *sshrimpAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent
 	Log.Traceln("signing data")
 	return r.Sign(key, data)
 }
+
 func (r *sshrimpAgent) Extension(extensionType string, contents []byte) ([]byte, error) {
 	return nil, agent.ErrExtensionUnsupported
 }

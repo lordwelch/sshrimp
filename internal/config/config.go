@@ -15,14 +15,14 @@ import (
 
 // Agent config for the sshrimp-agent agent
 type Agent struct {
-	ProviderURL    string
-	ClientID       string
-	ClientSecret   string
-	Socket         string
-	Scopes         []string
-	KeyPath        string
-	Port           int
-	CAUrls         []string
+	ProviderURL  string
+	ClientID     string
+	ClientSecret string
+	Socket       string
+	Scopes       []string
+	KeyPath      string
+	Port         int
+	CAUrls       []string
 }
 
 // CertificateAuthority config for the sshrimp-ca lambda

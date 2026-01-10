@@ -2,13 +2,12 @@ package main
 
 import (
 	"crypto"
+	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/rsa"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/signal"
@@ -17,13 +16,15 @@ import (
 	"strings"
 	"syscall"
 
-	"git.narnian.us/lordwelch/sshrimp/internal/config"
-	"git.narnian.us/lordwelch/sshrimp/internal/signer"
-	"git.narnian.us/lordwelch/sshrimp/internal/sshrimpagent"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/config"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/signer"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/sshrimpagent"
+	"github.com/prometheus/procfs"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/writer"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+	"inet.af/peercred"
 )
 
 var (
@@ -38,6 +39,7 @@ type cfg struct {
 	Config       string
 	LogDirectory string
 	Verbose      bool
+	Foreground   bool
 }
 
 func getLogDir() string {
@@ -72,8 +74,8 @@ func setupLoging(config cfg) error {
 		logrus.ErrorLevel,
 		logrus.WarnLevel,
 	}
-	err := os.MkdirAll(config.LogDirectory, 0750)
-	if err != nil && !os.IsExist(err) {
+	err := os.MkdirAll(config.LogDirectory, 0o750)
+	if err != nil {
 		log.Fatal(err)
 	}
 
@@ -91,7 +93,7 @@ func setupLoging(config cfg) error {
 		Writer:    os.Stderr,
 		LogLevels: levels,
 	})
-	logger.Out = ioutil.Discard
+	logger.Out = io.Discard
 	file, err := os.Create(logName)
 	if err != nil {
 		return err
@@ -122,36 +124,121 @@ func ExpandPath(path string) string {
 	return path
 }
 
+func main2(cli cfg, c *config.SSHrimp) {
+	err := setupLoging(cli)
+	if err != nil {
+		log.Warnf("Error setting up logging: %v", err)
+	}
+	listener := openSocket(ExpandPath(c.Agent.Socket))
+	if listener == nil {
+		log.Errorln("Failed to open socket")
+		return
+	}
+	err = launchAgent(c, listener)
+	if err != nil {
+		log.Panic("Failed to launch agent", err)
+	}
+}
+
 func main() {
 	defaultConfigPath := "~/.ssh/sshrimp.toml"
 	if configPathFromEnv, ok := os.LookupEnv("SSHRIMP_CONFIG"); ok && configPathFromEnv != "" {
 		defaultConfigPath = configPathFromEnv
 	}
-	var cli cfg
+	var (
+		cli cfg
+		err error
+	)
 	flag.StringVar(&cli.Config, "config", defaultConfigPath, "sshrimp config file")
 	flag.StringVar(&cli.LogDirectory, "log", getLogDir(), "sshrimp log directory")
 	flag.BoolVar(&cli.Verbose, "v", false, "enable verbose logging")
-	fmt.Println(getLogDir())
+	flag.BoolVar(&cli.Foreground, "f", false, "Run in the foreground")
 
 	flag.Parse()
+	sshCommand := flag.Args()
 
+	cfgFile := ExpandPath(cli.Config)
+	cfgFile, err = filepath.Abs(cfgFile)
+	if err != nil {
+		log.Errorln("config must be an absolute path")
+		os.Exit(1)
+	}
 	c := config.NewSSHrimpWithDefaults()
-	err := c.Read(ExpandPath(cli.Config))
+	err = c.Read(cfgFile)
 	if err != nil {
 		panic(err)
 	}
-	listener := openSocket(ExpandPath(c.Agent.Socket))
-	if listener == nil {
-		logger.Errorln("Failed to open socket")
-		return
+	if os.Getenv("SSHRIMP_DAEMON") == "true" {
+		cli.Foreground = true
 	}
-	if err := setupLoging(cli); err != nil {
-		logger.Warnf("Error setting up logging: %v", err)
+	if cli.Foreground {
+		logger.Println("Launching agent")
+		main2(cli, c)
+	} else {
+		logger.Println("Attempting to start daemon")
+		var nullFile *os.File
+		nullFile, err = os.Open(os.DevNull)
+		if err != nil {
+			panic(err)
+		}
+		env := os.Environ()
+		env = append(env, "SSHRIMP_DAEMON=true")
+		executable, err := os.Executable()
+		if err != nil {
+			panic(err)
+		}
+		_, err = os.StartProcess(executable, os.Args, &os.ProcAttr{
+			Dir:   filepath.Dir(cfgFile),
+			Env:   env,
+			Files: []*os.File{nullFile, nullFile, nullFile},
+			Sys: &syscall.SysProcAttr{
+				// Chroot:     d.Chroot,
+				Setsid: true,
+			},
+		})
+		if err != nil {
+			panic(err)
+		}
+		nullFile.Close()
 	}
-	err = launchAgent(c, listener)
-	if err != nil {
-		panic(err)
+	if len(sshCommand) > 1 && filepath.Base(sshCommand[0]) == "ssh" {
+		syscall.Exec(sshCommand[0], sshCommand, os.Environ())
 	}
+}
+
+func socketWorks(path string) bool {
+	var (
+		pid  int
+		cred *peercred.Creds
+	)
+	conn, sockErr := net.Dial("unix", path)
+	if sockErr != nil {
+		return false
+	}
+	if conn == nil {
+		return false
+	}
+	defer conn.Close()
+
+	cred, sockErr = peercred.Get(conn)
+	if sockErr != nil {
+		return false
+	}
+
+	var (
+		ok      bool
+		process *os.Process
+	)
+	pid, ok = cred.PID()
+	if !ok {
+		return false
+	}
+	process, sockErr = os.FindProcess(pid)
+	if sockErr != nil {
+		return false
+	}
+	defer process.Release()
+	return process.Signal(syscall.SIGHUP) == nil
 }
 
 func openSocket(socketPath string) net.Listener {
@@ -161,26 +248,17 @@ func openSocket(socketPath string) net.Listener {
 		logMessage string
 	)
 
-	if _, err = os.Stat(socketPath); err == nil {
-		fmt.Println("Creating socket")
-		fmt.Printf("File already exists at %s\n", socketPath)
-		conn, sockErr := net.Dial("unix", socketPath)
-		if conn == nil {
-			logMessage = "conn is nil"
-		}
-		if sockErr == nil { // socket is accepting connections
-			conn.Close()
-			fmt.Printf("socket %s already exists\n", socketPath)
-			return nil
-		}
-		fmt.Printf("Socket is not connected %s\n", logMessage)
-		err = os.Remove(socketPath)
-		if err == nil { // socket is not accepting connections, assuming safe to remove
-			fmt.Println("Deleting socket: success")
-		} else {
-			fmt.Println("Deleting socket: fail", err)
-			return nil
-		}
+	if socketWorks(socketPath) { // socket is accepting connections
+		log.Printf("socket %s already exists\n", socketPath)
+		return nil
+	}
+	log.Printf("Socket is not connected %s\n", logMessage)
+	err = os.Remove(socketPath)
+	if err == nil { // socket is not accepting connections, assuming safe to remove
+		log.Println("Deleting socket: success")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		log.Println("Deleting socket: fail", err)
+		return nil
 	}
 
 	// This affects all files created for the process. Since this is a sensitive
@@ -188,10 +266,60 @@ func openSocket(socketPath string) net.Listener {
 	syscall.Umask(0o077)
 	listener, err = net.Listen("unix", socketPath)
 	if err != nil {
-		fmt.Println("Error opening socket:", err)
+		log.Println("Error opening socket:", err)
 		return nil
 	}
+	log.Println("Opened socket", socketPath)
 	return listener
+}
+
+func getConnectedProcess(conn net.Conn) string {
+	var (
+		cred *peercred.Creds
+		err  error
+	)
+	cred, err = peercred.Get(conn)
+	if err != nil {
+		return ""
+	}
+	pid, ok := cred.PID()
+	if !ok {
+		return ""
+	}
+	var (
+		proc procfs.Proc
+		name string
+	)
+	proc, err = procfs.NewProc(pid)
+	if err != nil {
+		return fmt.Sprintf("pid %d", pid)
+	}
+	name, err = proc.Executable()
+	if err == nil {
+		return fmt.Sprintf("pid %d", pid)
+	}
+	return name
+}
+
+func handle(sshrimpAgent agent.Agent, conn net.Conn) (err error) {
+	defer func() {
+		panicErr := recover()
+
+		if panicErr != nil {
+			if err != nil {
+				err = fmt.Errorf("something panicked: %w: %v", err, panicErr)
+				return
+			}
+			err, _ = panicErr.(error)
+			return
+		}
+	}()
+	log.Infof("Serving agent to %s", getConnectedProcess(conn))
+	if err = agent.ServeAgent(sshrimpAgent, conn); err != nil && !errors.Is(err, io.EOF) {
+		log.Errorf("Error serving agent: %v", err)
+		return err
+	}
+	return err
 }
 
 func launchAgent(c *config.SSHrimp, listener net.Listener) error {
@@ -202,11 +330,11 @@ func launchAgent(c *config.SSHrimp, listener net.Listener) error {
 	)
 	defer listener.Close()
 
-	fmt.Printf("listening on %s\n", c.Agent.Socket)
+	log.Printf("listening on %s\n", c.Agent.Socket)
 
 	// Generate a new SSH private/public key pair
-	log.Tracef("Generating RSA %d ssh keys", 2048)
-	privateKey, err = rsa.GenerateKey(rand.Reader, 2048)
+	log.Tracef("Generating ed25519 ssh keys")
+	_, privateKey, err = ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return err
 	}
@@ -220,7 +348,7 @@ func launchAgent(c *config.SSHrimp, listener net.Listener) error {
 	log.Traceln("Creating new sshrimp agent from sshSigner and config")
 	sshrimpAgent, err := sshrimpagent.NewSSHrimpAgent(c, sshSigner)
 	if err != nil {
-		log.Logger.Errorf("Failed to create sshrimpAgent: %v", err)
+		log.Errorf("Failed to create sshrimpAgent: %v", err)
 	}
 
 	// Listen for signals so that we can close the listener and exit nicely
@@ -243,14 +371,10 @@ func launchAgent(c *config.SSHrimp, listener net.Listener) error {
 			log.Errorf("Error accepting connection: %v", err)
 			if strings.Contains(err.Error(), "use of closed network connection") {
 				// Occurs if the user interrupts the agent with a ctrl-c signal
-				return nil
+				continue
 			}
-			return err
+			log.Errorf("Error accepting connection: %v", err)
 		}
-		log.Traceln("Serving agent")
-		if err = agent.ServeAgent(sshrimpAgent, conn); err != nil && !errors.Is(err, io.EOF) {
-			log.Errorf("Error serving agent: %v", err)
-			return err
-		}
+		go handle(sshrimpAgent, conn)
 	}
 }

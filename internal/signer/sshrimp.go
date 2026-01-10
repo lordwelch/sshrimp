@@ -5,19 +5,18 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
 	"math/big"
-	"net/http"
 	"regexp"
 	"strings"
 	"time"
 
-	"errors"
-
-	"git.narnian.us/lordwelch/sshrimp/internal/config"
-	"git.narnian.us/lordwelch/sshrimp/internal/identity"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/config"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/http"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/identity"
 	"github.com/sirupsen/logrus"
 
 	"golang.org/x/crypto/ssh"
@@ -43,11 +42,12 @@ type SSHrimpEvent struct {
 // SignCertificateAllURLs iterate through each configured url if there is an error signing the certificate
 func SignCertificateAllURLs(publicKey ssh.PublicKey, token string, forceCommand string, urls []string) (*ssh.Certificate, error) {
 	var (
-		err  error
+		err  = fmt.Errorf("no urls found to sign certificate")
 		cert *ssh.Certificate
 	)
 
 	// Try each configured url before exiting if there is an error
+	Log.Logger.Tracef("Attempting to sign cert with urls %v", urls)
 	for _, url := range urls {
 		cert, err = SignCertificate(publicKey, token, forceCommand, url)
 		if err == nil {
@@ -69,12 +69,12 @@ func SignCertificate(publicKey ssh.PublicKey, token string, forceCommand string,
 		return nil, err
 	}
 
-	var uri string
-
-	result, err := http.Post(uri, "application/json", bytes.NewReader(payload))
+	Log.Logger.Tracef("Posting to url %s", url)
+	result, err := http.Client.Post(url, "application/json", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("http post failed: %w", err)
 	}
+	Log.Logger.Tracef("Reading body length: %d", result.ContentLength)
 	resbody, err := io.ReadAll(result.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve the response from sshrimp-ca: %w", err)
@@ -82,6 +82,7 @@ func SignCertificate(publicKey ssh.PublicKey, token string, forceCommand string,
 
 	// Parse the result form the lambda to extract the certificate
 	sshrimpResult := SSHrimpResult{}
+	Log.Logger.Tracef("parsing result: %v", string(resbody))
 	err = json.Unmarshal(resbody, &sshrimpResult)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse json response from sshrimp-ca: %w: %v", err, string(resbody))
@@ -98,14 +99,14 @@ func SignCertificate(publicKey ssh.PublicKey, token string, forceCommand string,
 
 	// Parse the certificate received by sshrimp-ca
 	cert, _, _, _, err := ssh.ParseAuthorizedKey([]byte(sshrimpResult.Certificate))
+	Log.Logger.Tracef("parsing cert: %v", err)
 	if err != nil {
 		return nil, err
 	}
 	return cert.(*ssh.Certificate), nil
 }
 
-
-func ValidateRequest(event SSHrimpEvent, c *config.SSHrimp, requestID string, functionID string) (ssh.Certificate, error) {
+func ValidateRequest(log *logrus.Entry, event SSHrimpEvent, c *config.SSHrimp, requestID string, ca ssh.PublicKey) (ssh.Certificate, error) {
 	// Validate the user supplied public key
 	publicKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(event.PublicKey))
 	if err != nil {
@@ -113,7 +114,7 @@ func ValidateRequest(event SSHrimpEvent, c *config.SSHrimp, requestID string, fu
 	}
 
 	// Validate the user supplied identity token with the loaded configuration
-	i, err := identity.NewIdentity(c)
+	i, err := identity.NewIdentity(log, c)
 	if err != nil {
 		return ssh.Certificate{}, err
 	}
@@ -180,7 +181,7 @@ func ValidateRequest(event SSHrimpEvent, c *config.SSHrimp, requestID string, fu
 		event.SourceAddress,
 		event.ForceCommand,
 		ssh.FingerprintSHA256(publicKey),
-		functionID,
+		ssh.FingerprintSHA256(ca),
 		validBefore.Format("2006/01/02 15:04:05"),
 	)
 

@@ -9,7 +9,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"git.narnian.us/lordwelch/sshrimp/internal/config"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/config"
+	sshrimp_http "gitea.narnian.us/lordwelch/sshrimp/internal/http"
 	"github.com/google/uuid"
 	"github.com/zitadel/oidc/pkg/client/rp"
 	httphelper "github.com/zitadel/oidc/pkg/http"
@@ -38,7 +39,7 @@ func newOIDCClient(c *config.SSHrimp) (*OidcClient, error) {
 		c.Agent.Scopes = append([]string{"scopes"}, c.Agent.Scopes...)
 	}
 
-	token_chan := make(chan *oidc.Tokens)
+	token := make(chan *oidc.Tokens)
 
 	oidcMux := http.NewServeMux()
 	return &OidcClient{
@@ -51,7 +52,7 @@ func newOIDCClient(c *config.SSHrimp) (*OidcClient, error) {
 			WriteTimeout:      time.Minute / 2,
 			IdleTimeout:       time.Minute / 2,
 		},
-		OIDCToken:   token_chan,
+		OIDCToken:   token,
 		Certificate: &ssh.Certificate{},
 		SSHrimp:     c,
 	}, nil
@@ -73,7 +74,7 @@ func (o *OidcClient) ListenAndServe() error {
 	if err = o.setupHandlers(); err != nil {
 		return err
 	}
-	return o.Server.Serve(ln)
+	return o.Serve(ln)
 }
 
 func (o *OidcClient) setupHandlers() error {
@@ -87,6 +88,7 @@ func (o *OidcClient) setupHandlers() error {
 	options := []rp.Option{
 		rp.WithCookieHandler(cookieHandler),
 		rp.WithVerifierOpts(rp.WithIssuedAtOffset(5 * time.Second)),
+		rp.WithHTTPClient(sshrimp_http.Client),
 	}
 	options = append(options, rp.WithPKCE(cookieHandler))
 	if o.Agent.KeyPath != "" {

@@ -3,46 +3,15 @@ package identity
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"log"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
-	"git.narnian.us/lordwelch/sshrimp/internal/config"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/config"
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/sirupsen/logrus"
 )
-
-func init() {
-	// Disable log prefixes such as the default timestamp.
-	// Prefix text prevents the message from being parsed as JSON.
-	// A timestamp is added when shipping logs to Cloud Logging.
-	log.SetFlags(0)
-}
-
-// Entry defines a log entry.
-type Entry struct {
-	Message  string `json:"message"`
-	Severity string `json:"severity,omitempty"`
-	Trace    string `json:"logging.googleapis.com/trace,omitempty"`
-
-	// Logs Explorer allows filtering and display of this as `jsonPayload.component`.
-	Component string `json:"component,omitempty"`
-}
-
-// String renders an entry structure to the JSON format expected by Cloud Logging.
-func (e Entry) String() string {
-	if e.Severity == "" {
-		e.Severity = "INFO"
-	}
-	out, err := json.Marshal(e)
-	if err != nil {
-		log.Printf("json.Marshal: %v", err)
-	}
-	return string(out)
-}
 
 // Identity holds information required to verify an OIDC identity token
 type Identity struct {
@@ -50,10 +19,11 @@ type Identity struct {
 	verifier       *oidc.IDTokenVerifier
 	usernameREs    []*regexp.Regexp
 	usernameClaims []string
+	log            *logrus.Entry
 }
 
 // NewIdentity return a new Identity, with default values and oidc proivder information populated
-func NewIdentity(c *config.SSHrimp) (*Identity, error) {
+func NewIdentity(log *logrus.Entry, c *config.SSHrimp) (*Identity, error) {
 	ctx := context.Background()
 	provider, err := oidc.NewProvider(ctx, c.Agent.ProviderURL)
 	if err != nil {
@@ -75,6 +45,7 @@ func NewIdentity(c *config.SSHrimp) (*Identity, error) {
 		verifier:       provider.Verifier(oidcConfig),
 		usernameREs:    regexes,
 		usernameClaims: c.CertificateAuthority.UsernameClaims,
+		log:            log,
 	}, nil
 }
 
@@ -96,13 +67,10 @@ func (i *Identity) getUsernames(idToken *oidc.IDToken) ([]string, error) {
 	usernames := make([]string, 0, len(i.usernameClaims))
 	for idx, claim := range i.usernameClaims {
 
-		claimedUsernames := getClaim(claim, claims)
+		claimedUsernames := i.getClaim(claim, claims)
 
 		if len(claimedUsernames) == 0 {
-			log.Println(Entry{
-				Severity: "NOTICE",
-				Message:  fmt.Sprintf("Did not find a username using: getClaim(%#v, %#v)", claim, claims),
-			})
+			i.log.Errorf("Did not find a username using: getClaim(%#v, %#v)", claim, claims)
 		}
 
 		if idx < len(i.usernameREs) {
@@ -114,10 +82,7 @@ func (i *Identity) getUsernames(idToken *oidc.IDToken) ([]string, error) {
 
 		}
 	}
-	log.Println(Entry{
-		Severity: "NOTICE",
-		Message:  fmt.Sprintf("Adding usernames: %v", usernames),
-	})
+	i.log.Infof("Adding usernames: %v", usernames)
 	if len(usernames) < 1 {
 		return nil, errors.New("configured username claim not in identity token")
 	}
@@ -131,7 +96,7 @@ func parseUsername(username string, re *regexp.Regexp) string {
 	return ""
 }
 
-func getClaim(claim string, claims map[string]interface{}) []string {
+func (i *Identity) getClaim(claim string, claims map[string]interface{}) []string {
 	usernames := make([]string, 0, 2)
 	parts := strings.Split(claim, ".")
 f:
@@ -161,21 +126,15 @@ f:
 		}
 
 	}
-	return base64Decode(usernames)
+	return i.base64Decode(usernames)
 }
-func base64Decode(names []string) []string {
+func (i *Identity) base64Decode(names []string) []string {
 	for idx, name := range names {
-		log.Println(Entry{
-			Severity: "NOTICE",
-			Message:  fmt.Sprintf("Attempting to decode %q as base64\n", name),
-		})
+		i.log.Debugf("Attempting to decode %q as base64\n", name)
 		decoded, err := base64.RawURLEncoding.DecodeString(name)
 		if err == nil && utf8.Valid(decoded) {
 			names[idx] = string(decoded)
-			log.Println(Entry{
-				Severity: "NOTICE",
-				Message:  fmt.Sprintf("Successfully decoded %q as base64\n", names[idx]),
-			})
+			i.log.Debugf("Successfully decoded %q as base64\n", names[idx])
 		}
 	}
 	return names

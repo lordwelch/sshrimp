@@ -14,10 +14,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
-	"git.narnian.us/lordwelch/sshrimp/internal/config"
-	"git.narnian.us/lordwelch/sshrimp/internal/signer"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/config"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/signer"
 	"github.com/BurntSushi/toml"
+	gonanoid "github.com/matoous/go-nanoid/v2"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -31,16 +34,22 @@ func httpError(w http.ResponseWriter, v interface{}, statusCode int) {
 type Server struct {
 	config *config.SSHrimp
 	Key    ssh.Signer
+	Log    *logrus.Logger
 }
 
 func NewServer(cfg *config.SSHrimp) (*Server, error) {
 	server := &Server{
 		config: cfg,
+		Log:    logrus.New(),
 	}
-	return server, nil
+	server.Log.SetLevel(logrus.DebugLevel)
+	return server, server.LoadKey()
 }
 
 func (s *Server) LoadKey() error {
+	if s.config.CertificateAuthority.KeyPath == "" {
+		return fmt.Errorf("key path missing")
+	}
 	b, err := os.ReadFile(s.config.CertificateAuthority.KeyPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -79,14 +88,18 @@ func (s *Server) GenerateKey() error {
 
 // ServeHTTP handles a request to sign an SSH public key verified by an OpenIDConnect id_token
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	txid := gonanoid.Must()
+	log := s.Log.WithField("X-Request-ID", txid)
+	w.Header().Add("X-Request-ID", txid)
 	defer r.Body.Close()
-	if r.URL.Path == "/config" {
+	if strings.HasPrefix(r.URL.Path, "/config") {
 		io.Copy(io.Discard, r.Body)
-		new_config := *s.config
-		// new_config.CertificateAuthority
+		newConfig := *s.config
+		newConfig.CertificateAuthority = config.CertificateAuthority{}
 		w.Header().Add("Content-Type", "application/toml")
+		w.Header().Add("Content-Disposition", `attachment; filename="sshrimp.toml"`)
 		t := toml.NewEncoder(w)
-		_ = t.Encode(new_config)
+		_ = t.Encode(newConfig)
 		return
 	}
 	if r.Header.Get("Content-Type") != "application/json" {
@@ -103,7 +116,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certificate, err := signer.ValidateRequest(event, s.config, r.Header.Get("Function-Execution-Id"), fmt.Sprintf("%s/%s/%s", os.Getenv("GCP_PROJECT"), os.Getenv("FUNCTION_REGION"), os.Getenv("FUNCTION_NAME")))
+	certificate, err := signer.ValidateRequest(log, event, s.config, txid, s.Key.PublicKey())
 	if err != nil {
 		httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusBadRequest)}, http.StatusBadRequest)
 		return
@@ -151,6 +164,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func main() {
 	cfgFile := flag.String("config", "/etc/sshrimp.toml", "Path to sshrimp.toml")
 	addr := flag.String("addr", "127.0.0.1:8080", "Address to listen on")
+	flag.Parse()
 	cfg := config.NewSSHrimp()
 	if err := cfg.Read(*cfgFile); err != nil {
 		log.Printf("Unable to read config file %s: %v", *cfgFile, err)
