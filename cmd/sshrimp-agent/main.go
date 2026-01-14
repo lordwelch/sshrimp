@@ -125,14 +125,14 @@ func ExpandPath(path string) string {
 }
 
 func main2(cli cfg, c *config.SSHrimp) {
-	err := setupLoging(cli)
-	if err != nil {
-		log.Warnf("Error setting up logging: %v", err)
-	}
 	listener := openSocket(ExpandPath(c.Agent.Socket))
 	if listener == nil {
 		log.Errorln("Failed to open socket")
 		return
+	}
+	err := setupLoging(cli)
+	if err != nil {
+		log.Warnf("Error setting up logging: %v", err)
 	}
 	err = launchAgent(c, listener)
 	if err != nil {
