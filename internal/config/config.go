@@ -43,19 +43,6 @@ type SSHrimp struct {
 	CertificateAuthority CertificateAuthority
 }
 
-var supportedExtensions = []string{
-	"no-agent-forwarding",
-	"no-port-forwarding",
-	"no-pty",
-	"no-user-rc",
-	"no-x11-forwarding",
-	"permit-agent-forwarding",
-	"permit-port-forwarding",
-	"permit-pty",
-	"permit-user-rc",
-	"permit-x11-forwarding",
-}
-
 // NewSSHrimp returns SSHrimp
 func NewSSHrimp() *SSHrimp {
 	return &SSHrimp{}
