@@ -1,8 +1,6 @@
 module gitea.narnian.us/lordwelch/sshrimp
 
-go 1.24.0
-
-toolchain go1.24.6
+go 1.26
 
 require (
 	github.com/BurntSushi/toml v1.6.0
@@ -11,10 +9,12 @@ require (
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/prometheus/procfs v0.19.2
-	github.com/sirupsen/logrus v1.9.3
+	github.com/sirupsen/logrus v1.9.4
 	github.com/zitadel/oidc v1.13.5
-	golang.org/x/crypto v0.46.0
-	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93
+	golang.org/x/crypto v0.48.0
+	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa
+	golang.org/x/oauth2 v0.35.0
+	gopkg.in/square/go-jose.v2 v2.6.0
 	inet.af/peercred v0.0.0-20210906144145-0893ea02156a
 )
 
@@ -26,9 +26,6 @@ require (
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/zitadel/logging v0.6.2 // indirect
-	golang.org/x/net v0.48.0 // indirect
-	golang.org/x/oauth2 v0.34.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
-	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
+	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 )
