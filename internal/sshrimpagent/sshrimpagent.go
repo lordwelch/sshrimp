@@ -37,6 +37,7 @@ func NewSSHrimpAgent(c *config.SSHrimp, signer ssh.Signer) (agent.Agent, error) 
 			if err = oidcClient.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 				Log.Logger.Errorf("Server failed: %v", err)
 			}
+			time.Sleep(1 * time.Second)
 		}
 	}()
 

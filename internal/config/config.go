@@ -20,7 +20,6 @@ type Agent struct {
 	ClientSecret string
 	Socket       string
 	Scopes       []string
-	KeyPath      string
 	Port         int
 	CAUrls       []string
 }
