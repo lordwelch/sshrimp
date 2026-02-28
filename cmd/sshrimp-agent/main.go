@@ -177,6 +177,7 @@ func main() {
 	if cli.Foreground {
 		logger.Println("Launching agent")
 		main2(cli, c)
+		return
 	} else {
 		logger.Debug("Attempting to start daemon")
 		var nullFile *os.File
@@ -205,7 +206,14 @@ func main() {
 		nullFile.Close()
 		logger.Debugf("Agent started in the background check %s for logs", getLogDir())
 	}
-	if len(sshCommand) > 1 && filepath.Base(sshCommand[0]) == "ssh" {
+	if len(sshCommand) == 1 && strings.HasPrefix(sshCommand[0], "sshrimp:"){
+		conn, err := net.Dial("unix", ExpandPath(c.Agent.Socket))
+		if err != nil {
+			log.Fatalf("Failed to open SSH_AUTH_SOCK: %v", err)
+		}
+		agentClient := agent.NewClient(conn)
+		agentClient.Extension("sshrimp-oauth", []byte(sshCommand[0]))
+	} else if len(sshCommand) > 1 && filepath.Base(sshCommand[0]) == "ssh" {
 		syscall.Exec(sshCommand[0], sshCommand, os.Environ())
 	}
 }

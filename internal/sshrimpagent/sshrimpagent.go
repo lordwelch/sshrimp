@@ -1,15 +1,24 @@
 package sshrimpagent
 
 import (
+	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"errors"
-	"net/http"
+	"fmt"
+	"log"
+	"net/url"
+	"strings"
 	"time"
 
 	"gitea.narnian.us/lordwelch/sshrimp/internal/config"
 	"gitea.narnian.us/lordwelch/sshrimp/internal/signer"
+	"github.com/google/uuid"
 	"github.com/pkg/browser"
+	"github.com/rymdport/portal/openuri"
 	"github.com/sirupsen/logrus"
+	"github.com/zitadel/oidc/pkg/client"
+	"github.com/zitadel/oidc/pkg/client/rp"
 	"github.com/zitadel/oidc/pkg/oidc"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -32,14 +41,14 @@ func NewSSHrimpAgent(c *config.SSHrimp, signer ssh.Signer) (agent.Agent, error) 
 		return nil, err
 	}
 
-	go func() {
-		for {
-			if err = oidcClient.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-				Log.Logger.Errorf("Server failed: %v", err)
-			}
-			time.Sleep(1 * time.Second)
-		}
-	}()
+	// go func() {
+	// 	for {
+	// 		if err = oidcClient.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+	// 			Log.Logger.Errorf("Server failed: %v", err)
+	// 		}
+	// 		time.Sleep(1 * time.Second)
+	// 	}
+	// }()
 
 	return &sshrimpAgent{
 		oidcClient:  oidcClient,
@@ -59,8 +68,9 @@ func (r *sshrimpAgent) authenticate() error {
 		err = errors.New("no token provided")
 	}
 	if err != nil {
-		Log.Debugln("Token is expired re-authenticating http://" + r.oidcClient.Addr + "/login")
-		_ = browser.OpenURL("http://" + r.oidcClient.Addr + "/login")
+		// Log.Debugln("Token is expired re-authenticating http://" + r.oidcClient.Addr + "/login")
+		// OpenURL("http://" + r.oidcClient.Addr + "/login")
+		r.startAuth()
 		select {
 		case r.token = <-r.oidcClient.OIDCToken:
 			return nil
@@ -69,6 +79,38 @@ func (r *sshrimpAgent) authenticate() error {
 		}
 	}
 	return err
+}
+
+func OpenURL(url string) {
+	if openuri.OpenURI("", url, nil) == nil {
+		return
+	}
+	_ = browser.OpenURL(url)
+}
+
+func (r *sshrimpAgent) startAuth() {
+	r.oidcClient.pkce = base64.RawURLEncoding.EncodeToString([]byte(uuid.New().String()))
+	codeChallenge := oidc.NewSHACodeChallenge(r.oidcClient.pkce)
+	log.Println("pkce", r.oidcClient.pkce, codeChallenge)
+	c := r.oidcClient.provider.OAuthConfig()
+	uri, _ := url.Parse(c.Endpoint.AuthURL)
+	v := uri.Query()
+	v.Set("code_challenge", codeChallenge)
+	v.Set("code_challenge_method", "S256")
+	v.Set("response_type", "code")
+	v.Set("client_id", c.ClientID)
+	if c.RedirectURL != "" {
+		v.Set("redirect_uri", c.RedirectURL)
+	}
+	if len(c.Scopes) > 0 {
+		v.Set("scope", strings.Join(c.Scopes, " "))
+	}
+	// for _, opt := range opts {
+	// 	opt.setValue(v)
+	// }
+
+	uri.RawQuery = v.Encode()
+	OpenURL(uri.String())
 }
 
 // RemoveAll clears the current certificate and identity token (including refresh token)
@@ -172,5 +214,40 @@ func (r *sshrimpAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent
 }
 
 func (r *sshrimpAgent) Extension(extensionType string, contents []byte) ([]byte, error) {
+	if extensionType == "sshrimp-oauth" {
+		URL, err := url.Parse(string(contents))
+		log.Printf("%#v", URL)
+		if err != nil {
+			return fmt.Appendf(nil, "Failed to parse url: %v", err), nil
+		}
+		params := URL.Query()
+		if params.Get("error") != "" {
+			return fmt.Appendf(nil, "Failed to authenticate: %v", params.Get("error_description")), nil
+		}
+		codeOpts := make([]rp.CodeExchangeOpt, 0)
+		// for i, p := range urlParam {
+		// 	codeOpts[i] = CodeExchangeOpt(p)
+		// }
+
+		codeVerifier := oidc.NewSHACodeChallenge(base64.RawURLEncoding.EncodeToString([]byte(r.oidcClient.pkce)))
+		log.Println("oauth", r.oidcClient.pkce, codeVerifier)
+		codeOpts = append(codeOpts, rp.WithCodeVerifier(r.oidcClient.pkce))
+		if r.oidcClient.provider.Signer() != nil {
+			assertion, err := client.SignedJWTProfileAssertion(r.config.Agent.ClientID, []string{r.oidcClient.provider.Issuer()}, time.Hour, r.oidcClient.provider.Signer())
+			if err != nil {
+				log.Printf("failed to build assertion: %v", err)
+				return fmt.Appendf(nil, "failed to build assertion: %v", err), nil
+			}
+			codeOpts = append(codeOpts, rp.WithClientAssertionJWT(assertion))
+		}
+		ctx := context.Background()
+		tokens, err := rp.CodeExchange(ctx, params.Get("code"), r.oidcClient.provider, codeOpts...)
+		if err != nil {
+			log.Printf("failed to exchange token: %v", err)
+			return fmt.Appendf(nil, "failed to exchange token: %v", err), nil
+		}
+		r.oidcClient.OIDCToken <- tokens
+		return contents, nil
+	}
 	return nil, agent.ErrExtensionUnsupported
 }

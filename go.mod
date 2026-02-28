@@ -9,10 +9,10 @@ require (
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/prometheus/procfs v0.19.2
+	github.com/rymdport/portal v0.4.2
 	github.com/sirupsen/logrus v1.9.4
 	github.com/zitadel/oidc v1.13.5
 	golang.org/x/crypto v0.48.0
-	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa
 	golang.org/x/oauth2 v0.35.0
 	gopkg.in/square/go-jose.v2 v2.6.0
 	inet.af/peercred v0.0.0-20210906144145-0893ea02156a
@@ -20,6 +20,7 @@ require (
 
 require (
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
+	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/gorilla/schema v1.4.1 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/jeremija/gosubmit v0.2.8 // indirect
