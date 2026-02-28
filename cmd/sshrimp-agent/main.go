@@ -206,7 +206,7 @@ func main() {
 		nullFile.Close()
 		logger.Debugf("Agent started in the background check %s for logs", getLogDir())
 	}
-	if len(sshCommand) == 1 && strings.HasPrefix(sshCommand[0], "sshrimp:"){
+	if len(sshCommand) == 1 && strings.HasPrefix(sshCommand[0], "sshrimp:") {
 		conn, err := net.Dial("unix", ExpandPath(c.Agent.Socket))
 		if err != nil {
 			log.Fatalf("Failed to open SSH_AUTH_SOCK: %v", err)

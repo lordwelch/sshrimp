@@ -41,15 +41,6 @@ func NewSSHrimpAgent(c *config.SSHrimp, signer ssh.Signer) (agent.Agent, error) 
 		return nil, err
 	}
 
-	// go func() {
-	// 	for {
-	// 		if err = oidcClient.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-	// 			Log.Logger.Errorf("Server failed: %v", err)
-	// 		}
-	// 		time.Sleep(1 * time.Second)
-	// 	}
-	// }()
-
 	return &sshrimpAgent{
 		oidcClient:  oidcClient,
 		signer:      signer,
@@ -105,9 +96,6 @@ func (r *sshrimpAgent) startAuth() {
 	if len(c.Scopes) > 0 {
 		v.Set("scope", strings.Join(c.Scopes, " "))
 	}
-	// for _, opt := range opts {
-	// 	opt.setValue(v)
-	// }
 
 	uri.RawQuery = v.Encode()
 	OpenURL(uri.String())
@@ -224,15 +212,11 @@ func (r *sshrimpAgent) Extension(extensionType string, contents []byte) ([]byte,
 		if params.Get("error") != "" {
 			return fmt.Appendf(nil, "Failed to authenticate: %v", params.Get("error_description")), nil
 		}
-		codeOpts := make([]rp.CodeExchangeOpt, 0)
-		// for i, p := range urlParam {
-		// 	codeOpts[i] = CodeExchangeOpt(p)
-		// }
+		codeOpts := []rp.CodeExchangeOpt{
+			rp.WithCodeVerifier(r.oidcClient.pkce),
+		}
 
-		codeVerifier := oidc.NewSHACodeChallenge(base64.RawURLEncoding.EncodeToString([]byte(r.oidcClient.pkce)))
-		log.Println("oauth", r.oidcClient.pkce, codeVerifier)
-		codeOpts = append(codeOpts, rp.WithCodeVerifier(r.oidcClient.pkce))
-		if r.oidcClient.provider.Signer() != nil {
+		if r.oidcClient.provider.Signer() == nil {
 			assertion, err := client.SignedJWTProfileAssertion(r.config.Agent.ClientID, []string{r.oidcClient.provider.Issuer()}, time.Hour, r.oidcClient.provider.Signer())
 			if err != nil {
 				log.Printf("failed to build assertion: %v", err)

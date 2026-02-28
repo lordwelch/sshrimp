@@ -1,14 +1,7 @@
 package config
 
 import (
-	"errors"
-	"fmt"
-	"net/url"
 	"os"
-	"reflect"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -20,7 +13,6 @@ type Agent struct {
 	ClientSecret string
 	Socket       string
 	Scopes       []string
-	Port         int
 	CAUrls       []string
 }
 
@@ -72,54 +64,6 @@ func NewSSHrimpWithDefaults() *SSHrimp {
 		},
 	}
 	return &sshrimp
-}
-
-func validateInt(val any) error {
-	if str, ok := val.(string); ok {
-		if _, err := strconv.Atoi(str); err != nil {
-			return err
-		}
-	} else {
-		return fmt.Errorf("expected type string got %v", reflect.TypeOf(val).Name())
-	}
-
-	return nil
-}
-
-func validateURL(val any) error {
-	if str, ok := val.(string); ok {
-		if _, err := url.ParseRequestURI(str); err != nil {
-			return err
-		}
-	} else {
-		return fmt.Errorf("expected type string got %v", reflect.TypeOf(val).Name())
-	}
-
-	return nil
-}
-
-func validateDuration(val any) error {
-	if str, ok := val.(string); ok {
-		if _, err := time.ParseDuration(str); err != nil {
-			return err
-		}
-	} else {
-		return fmt.Errorf("expected type string got %v", reflect.TypeOf(val).Name())
-	}
-
-	return nil
-}
-
-func validateAlias(val any) error {
-	if str, ok := val.(string); ok {
-		if !strings.HasPrefix(str, "alias/") {
-			return errors.New("KMS alias must begin with alias/")
-		}
-	} else {
-		return fmt.Errorf("expected type string got %v", reflect.TypeOf(val).Name())
-	}
-
-	return nil
 }
 
 func (c *SSHrimp) Read(configPath string) error {

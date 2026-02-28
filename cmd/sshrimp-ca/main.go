@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"gitea.narnian.us/lordwelch/sshrimp/internal/config"
+	"gitea.narnian.us/lordwelch/sshrimp/internal/identity"
 	"gitea.narnian.us/lordwelch/sshrimp/internal/signer"
 	"github.com/BurntSushi/toml"
 	gonanoid "github.com/matoous/go-nanoid/v2"
@@ -109,7 +110,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Add("Content-Type", "application/json")
-	// Load the configuration file, if not exsits, exit.
+	// Load the configuration file, or exit.
 	var event signer.SSHrimpEvent
 	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
 		httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusBadRequest)}, http.StatusBadRequest)
@@ -134,15 +135,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If you want to validate that the generated cert is correct
-	// i, _ := identity.NewIdentity(s.config)
-	// username, _ := i.Validate(event.Token)
-	// cc := ssh.CertChecker{}
-	// err = cc.CheckCert(username, &certificate)
-	// if err != nil {
-	// 	httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusInternalServerError)}, http.StatusBadRequest)
-	// 	return
-	// }
+	i, _ := identity.NewIdentity(s.Log.WithContext(r.Context()), s.config)
+	usernames, _ := i.Validate(event.Token)
+	cc := ssh.CertChecker{}
+	for _, username := range usernames {
+		err = cc.CheckCert(username, &certificate)
+		if err != nil {
+			httpError(w, signer.SSHrimpResult{Certificate: "", ErrorMessage: err.Error(), ErrorType: http.StatusText(http.StatusInternalServerError)}, http.StatusBadRequest)
+			return
+		}
+	}
 
 	// Return the certificate to the user
 	pubkey, err := ssh.ParsePublicKey(certificate.Marshal())
