@@ -42,12 +42,12 @@ type SSHrimpEvent struct {
 // SignCertificateAllURLs iterate through each configured url if there is an error signing the certificate
 func SignCertificateAllURLs(publicKey ssh.PublicKey, token string, forceCommand string, urls []string) (*ssh.Certificate, error) {
 	var (
-		err  = fmt.Errorf("no urls found to sign certificate")
+		err  = fmt.Errorf("no urls found to request certificate")
 		cert *ssh.Certificate
 	)
 
 	// Try each configured url before exiting if there is an error
-	Log.Logger.Tracef("Attempting to sign cert with urls %v", urls)
+	Log.Logger.Tracef("Requesting cert with urls %v", urls)
 	for _, url := range urls {
 		cert, err = SignCertificate(publicKey, token, forceCommand, url)
 		if err == nil {

@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -82,7 +81,6 @@ func OpenURL(url string) {
 func (r *sshrimpAgent) startAuth() {
 	r.oidcClient.pkce = base64.RawURLEncoding.EncodeToString([]byte(uuid.New().String()))
 	codeChallenge := oidc.NewSHACodeChallenge(r.oidcClient.pkce)
-	log.Println("pkce", r.oidcClient.pkce, codeChallenge)
 	c := r.oidcClient.provider.OAuthConfig()
 	uri, _ := url.Parse(c.Endpoint.AuthURL)
 	v := uri.Query()
@@ -139,10 +137,10 @@ func (r *sshrimpAgent) List() ([]*agent.Key, error) {
 			return nil, err
 		}
 
-		Log.Traceln("signing certificate")
+		Log.Traceln("Requesting certificate")
 		cert, err := signer.SignCertificateAllURLs(r.signer.PublicKey(), r.token.IDToken, "", r.config.Agent.CAUrls)
 		if err != nil {
-			Log.Errorf("signing certificate failed: %v", err)
+			Log.Errorf("Requesting certificate failed: %v", err)
 			return nil, err
 		}
 		r.certificate = cert
@@ -204,7 +202,7 @@ func (r *sshrimpAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent
 func (r *sshrimpAgent) Extension(extensionType string, contents []byte) ([]byte, error) {
 	if extensionType == "sshrimp-oauth" {
 		URL, err := url.Parse(string(contents))
-		log.Printf("%#v", URL)
+		Log.Printf("%v", URL)
 		if err != nil {
 			return fmt.Appendf(nil, "Failed to parse url: %v", err), nil
 		}
@@ -216,10 +214,10 @@ func (r *sshrimpAgent) Extension(extensionType string, contents []byte) ([]byte,
 			rp.WithCodeVerifier(r.oidcClient.pkce),
 		}
 
-		if r.oidcClient.provider.Signer() == nil {
+		if r.oidcClient.provider.Signer() != nil {
 			assertion, err := client.SignedJWTProfileAssertion(r.config.Agent.ClientID, []string{r.oidcClient.provider.Issuer()}, time.Hour, r.oidcClient.provider.Signer())
 			if err != nil {
-				log.Printf("failed to build assertion: %v", err)
+				Log.Printf("failed to build assertion: %v", err)
 				return fmt.Appendf(nil, "failed to build assertion: %v", err), nil
 			}
 			codeOpts = append(codeOpts, rp.WithClientAssertionJWT(assertion))
@@ -227,7 +225,7 @@ func (r *sshrimpAgent) Extension(extensionType string, contents []byte) ([]byte,
 		ctx := context.Background()
 		tokens, err := rp.CodeExchange(ctx, params.Get("code"), r.oidcClient.provider, codeOpts...)
 		if err != nil {
-			log.Printf("failed to exchange token: %v", err)
+			Log.Printf("failed to exchange token: %v", err)
 			return fmt.Appendf(nil, "failed to exchange token: %v", err), nil
 		}
 		r.oidcClient.OIDCToken <- tokens
