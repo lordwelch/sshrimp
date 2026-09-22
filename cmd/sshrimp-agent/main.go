@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -214,7 +215,15 @@ func main() {
 		agentClient := agent.NewClient(conn)
 		agentClient.Extension("sshrimp-oauth", []byte(sshCommand[0]))
 	} else if len(sshCommand) > 1 && filepath.Base(sshCommand[0]) == "ssh" {
-		syscall.Exec(sshCommand[0], sshCommand, os.Environ())
+		os.Setenv("SSH_AUTH_SOCK", ExpandPath(c.Agent.Socket))
+		sshExecutable := sshCommand[0]
+		if !filepath.IsAbs(sshCommand[0]) {
+			sshExecutable, err = exec.LookPath(sshCommand[0])
+			if err != nil {
+				sshExecutable = sshCommand[0]
+			}
+		}
+		syscall.Exec(sshExecutable, sshCommand, os.Environ())
 	}
 }
 
