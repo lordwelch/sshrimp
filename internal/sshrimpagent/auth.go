@@ -1,6 +1,8 @@
 package sshrimpagent
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"sync"
@@ -23,18 +25,19 @@ import (
 var hashKey = []byte(uuid.New().String())[:16]
 
 type OidcClient struct {
-	ListenAddress string
 	*http.Server
-	oidcMux     *http.ServeMux
-	OIDCToken   chan *oidc.Tokens
-	Certificate *ssh.Certificate
-	rpDate      time.Time
 	*config.SSHrimp
-	provider *Provider
-	pkce     string
+	ListenAddress string
+	oidcMux       *http.ServeMux
+	OIDCToken     chan *oidc.Tokens
+	TokenRecieved chan struct{}
+	Certificate   *ssh.Certificate
+	rpDate        time.Time
+	provider      *Provider
+	pkce          string
 }
 
-func newOIDCClient(c *config.SSHrimp) (*OidcClient, error) {
+func newOIDCClient(c *config.SSHrimp, redirectURI url.URL) (*OidcClient, error) {
 	if len(c.Agent.Scopes) < 1 {
 		c.Agent.Scopes = []string{"openid", "email", "profile"}
 	}
@@ -42,13 +45,11 @@ func newOIDCClient(c *config.SSHrimp) (*OidcClient, error) {
 		c.Agent.Scopes = append([]string{"scopes"}, c.Agent.Scopes...)
 	}
 
-	token := make(chan *oidc.Tokens)
+	token := make(chan *oidc.Tokens, 5)
 
-	redirectURI := url.URL{
-		Scheme: "sshrimp",
-	}
-	redirectURI.Path = "/auth/callback"
+	oidcMux := http.NewServeMux()
 	client := &OidcClient{
+		oidcMux:     oidcMux,
 		OIDCToken:   token,
 		Certificate: &ssh.Certificate{},
 		SSHrimp:     c,
@@ -60,6 +61,20 @@ func newOIDCClient(c *config.SSHrimp) (*OidcClient, error) {
 			redirectURI:   redirectURI,
 			cookieHandler: httphelper.NewCookieHandler(hashKey, nil),
 		},
+	}
+	if redirectURI.Scheme[0:4] == "http" {
+		client.Server = &http.Server{
+			Addr:              redirectURI.Host,
+			Handler:           oidcMux,
+			ReadTimeout:       time.Minute / 2,
+			ReadHeaderTimeout: time.Minute / 2,
+			WriteTimeout:      time.Minute / 2,
+			IdleTimeout:       time.Minute / 2,
+		}
+		err := client.setupHandlers()
+		if err != nil {
+			return client, err
+		}
 	}
 	client.provider.updateRP()
 	return client, nil
@@ -155,4 +170,81 @@ func (p *Provider) IDTokenVerifier() rp.IDTokenVerifier {
 func (p *Provider) ErrorHandler() func(http.ResponseWriter, *http.Request, string, string, string) {
 	p.updateRP()
 	return p.RelyingParty.ErrorHandler()
+}
+
+func (o *OidcClient) baseURI() url.URL {
+	return url.URL{
+		Scheme: "http",
+		Host:   o.Addr,
+	}
+}
+
+func (o *OidcClient) setupHandlers() error {
+	successURI := o.baseURI()
+	successURI.Path = "/success"
+	var CAKey []byte
+	resp, err := sshrimp_http.Client.Get(o.Agent.CAUrls[0])
+	if err == nil && resp.Header.Get("Content-Type") == "text/x-ssh-public-key" {
+		CAKey, err = io.ReadAll(resp.Body)
+		if err != nil {
+			CAKey = []byte{}
+		}
+	}
+	// generate some state (representing the state of the user in your application,
+	// e.g. the page where he was before sending him to login
+	state := func() string {
+		return uuid.New().String()
+	}
+
+	// register the AuthURLHandler at your preferred path
+	// the AuthURLHandler creates the auth request and redirects the user to the auth server
+	// including state handling with secure cookie and the possibility to use PKCE
+	o.oidcMux.Handle("/login", rp.AuthURLHandler(state, o.provider))
+	o.oidcMux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if o.Certificate != nil && o.Certificate.SignatureKey != nil {
+			key := ssh.MarshalAuthorizedKey(o.Certificate.SignatureKey)
+			if len(CAKey) < 3 {
+				CAKey = key
+			}
+			if !slices.Equal(key, CAKey) {
+				Log.Errorf("Certificate Authority key has changed from %#v to %#v", string(CAKey), string(key))
+				fmt.Fprintf(w, "\n\nCertificate Authority key has changed from \n%#v\nto \n%#v", string(CAKey), string(key))
+			}
+		}
+		fmt.Fprintf(w, "The SSH CA currently in use is:\n%s", CAKey)
+		Log.Printf("/: The SSH CA currently in use is:\n%s", CAKey)
+	}))
+	o.oidcMux.Handle(successURI.Path, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "Return to the CLI.")
+		if o.Certificate != nil && o.Certificate.SignatureKey != nil {
+			key := ssh.MarshalAuthorizedKey(o.Certificate.SignatureKey)
+			if len(CAKey) < 3 {
+				CAKey = key
+			}
+			if !slices.Equal(key, CAKey) {
+				Log.Errorf("Certificate Authority key has changed from %#v to %#v", string(CAKey), string(key))
+				fmt.Fprintf(w, "\n\nCertificate Authority key has changed from \n%#v\nto \n%#v", string(CAKey), string(key))
+			}
+		}
+		fmt.Fprintf(w, "The SSH CA currently in use is: %s", CAKey)
+		Log.Printf("/success: The SSH CA currently in use is:\n%s", CAKey)
+	}))
+
+	marshalUserinfo := func(w http.ResponseWriter, r *http.Request, tokens *oidc.Tokens, state string, rp rp.RelyingParty) {
+		select {
+		case o.OIDCToken <- tokens:
+			Log.Print("Sent token")
+		case <-time.After(1 * time.Second):
+			Log.Print("Failed to send token")
+		}
+
+		w.Header().Add("location", successURI.String())
+		w.WriteHeader(301)
+	}
+
+	// register the CodeExchangeHandler at the callbackPath
+	// the CodeExchangeHandler handles the auth response, creates the token request and calls the callback function
+	// with the returned tokens from the token endpoint
+	o.oidcMux.Handle(o.provider.redirectURI.Path, rp.CodeExchangeHandler(marshalUserinfo, o.provider))
+	return nil
 }

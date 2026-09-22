@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -35,40 +36,71 @@ type sshrimpAgent struct {
 
 // NewSSHrimpAgent returns an agent.Agent capable of signing certificates with a SSHrimp Certificate Authority
 func NewSSHrimpAgent(c *config.SSHrimp, signer ssh.Signer) (agent.Agent, error) {
-	oidcClient, err := newOIDCClient(c)
+	oidcClient, err := newOIDCClient(c, url.URL{
+		Scheme: "http",
+		Host:   "127.0.0.1:8888",
+		Path:   "/auth/callback",
+	})
 	if err != nil {
 		return nil, err
 	}
+	go func() {
+		for {
+			if err = oidcClient.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+				Log.Logger.Errorf("Server failed: %v", err)
+			}
+			time.Sleep(1 * time.Second)
+		}
+	}()
 
-	return &sshrimpAgent{
+	agent := &sshrimpAgent{
 		oidcClient:  oidcClient,
 		signer:      signer,
 		certificate: &ssh.Certificate{},
 		token:       nil,
 		config:      c,
-	}, nil
+	}
+	go agent.ReceiveTokens()
+	return agent, nil
 }
+
+var TimeoutErr = errors.New("Timeout")
 
 // authenticate authenticates a oidc token
 func (r *sshrimpAgent) authenticate() error {
 	var err error
 	if r.token != nil {
-		err = oidc.CheckExpiration(r.token.IDTokenClaims, 0)
+		err = oidc.CheckExpiration(r.token.IDTokenClaims, 15)
 	} else {
 		err = errors.New("no token provided")
 	}
 	if err != nil {
-		// Log.Debugln("Token is expired re-authenticating http://" + r.oidcClient.Addr + "/login")
-		// OpenURL("http://" + r.oidcClient.Addr + "/login")
+		// We have recieveTokens running in a goroutine so we should never get here if if we have a token
+		// Previously we would request a new token before checking the channel for an existing token
+		// Which would cause a browser window to open when we didn't need to
 		r.startAuth()
 		select {
-		case r.token = <-r.oidcClient.OIDCToken:
+		//
+		case <-r.oidcClient.TokenRecieved:
 			return nil
 		case <-time.After(30 * time.Second):
-			return errors.New("Timeout")
+			return TimeoutErr
 		}
 	}
 	return err
+}
+
+func (r *sshrimpAgent) ReceiveTokens() {
+	for {
+		// always drain the r.oidcClient.OIDCToken channel so that the client doesn't wait around for nothing
+		r.token = <-r.oidcClient.OIDCToken
+		// If we have recieved a token try to send on the r.oidcClient.TokenRecieved channel
+		// An ssh connection may be waiting on this token we don't want them to wait the whole 30s for a timeout
+		select {
+		case r.oidcClient.TokenRecieved <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func OpenURL(url string) {
@@ -88,6 +120,8 @@ func (r *sshrimpAgent) startAuth() {
 	v.Set("code_challenge_method", "S256")
 	v.Set("response_type", "code")
 	v.Set("client_id", c.ClientID)
+	// state does not matter but is required when using http redirect_uri
+	v.Set("state", uuid.New().String())
 	if c.RedirectURL != "" {
 		v.Set("redirect_uri", c.RedirectURL)
 	}
@@ -132,7 +166,8 @@ func (r *sshrimpAgent) List() ([]*agent.Key, error) {
 		Log.Traceln("Certificate has expired")
 		Log.Traceln("authenticating token")
 		err := r.authenticate()
-		if err != nil {
+		if err != nil && !errors.Is(err, TimeoutErr) {
+			// Try to sign the cert even if we get a timeout the most that will happen is the cert gets rejected
 			Log.Errorf("authenticating the token failed: %v", err)
 			return nil, err
 		}
@@ -200,36 +235,36 @@ func (r *sshrimpAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent
 }
 
 func (r *sshrimpAgent) Extension(extensionType string, contents []byte) ([]byte, error) {
-	if extensionType == "sshrimp-oauth" {
-		URL, err := url.Parse(string(contents))
-		Log.Printf("%v", URL)
-		if err != nil {
-			return fmt.Appendf(nil, "Failed to parse url: %v", err), nil
-		}
-		params := URL.Query()
-		if params.Get("error") != "" {
-			return fmt.Appendf(nil, "Failed to authenticate: %v", params.Get("error_description")), nil
-		}
-		codeOpts := []rp.CodeExchangeOpt{
-			rp.WithCodeVerifier(r.oidcClient.pkce),
-		}
-
-		if r.oidcClient.provider.Signer() != nil {
-			assertion, err := client.SignedJWTProfileAssertion(r.config.Agent.ClientID, []string{r.oidcClient.provider.Issuer()}, time.Hour, r.oidcClient.provider.Signer())
-			if err != nil {
-				Log.Printf("failed to build assertion: %v", err)
-				return fmt.Appendf(nil, "failed to build assertion: %v", err), nil
-			}
-			codeOpts = append(codeOpts, rp.WithClientAssertionJWT(assertion))
-		}
-		ctx := context.Background()
-		tokens, err := rp.CodeExchange(ctx, params.Get("code"), r.oidcClient.provider, codeOpts...)
-		if err != nil {
-			Log.Printf("failed to exchange token: %v", err)
-			return fmt.Appendf(nil, "failed to exchange token: %v", err), nil
-		}
-		r.oidcClient.OIDCToken <- tokens
-		return contents, nil
+	if extensionType != "sshrimp-oauth" {
+		return nil, agent.ErrExtensionUnsupported
 	}
-	return nil, agent.ErrExtensionUnsupported
+	URL, err := url.Parse(string(contents))
+	Log.Printf("%v", URL)
+	if err != nil {
+		return fmt.Appendf(nil, "Failed to parse url: %v", err), nil
+	}
+	params := URL.Query()
+	if params.Get("error") != "" {
+		return fmt.Appendf(nil, "Failed to authenticate: %v", params.Get("error_description")), nil
+	}
+	codeOpts := []rp.CodeExchangeOpt{
+		rp.WithCodeVerifier(r.oidcClient.pkce),
+	}
+
+	if r.oidcClient.provider.Signer() != nil {
+		assertion, err := client.SignedJWTProfileAssertion(r.config.Agent.ClientID, []string{r.oidcClient.provider.Issuer()}, time.Hour, r.oidcClient.provider.Signer())
+		if err != nil {
+			Log.Printf("failed to build assertion: %v", err)
+			return fmt.Appendf(nil, "failed to build assertion: %v", err), nil
+		}
+		codeOpts = append(codeOpts, rp.WithClientAssertionJWT(assertion))
+	}
+	ctx := context.Background()
+	tokens, err := rp.CodeExchange(ctx, params.Get("code"), r.oidcClient.provider, codeOpts...)
+	if err != nil {
+		Log.Printf("failed to exchange token: %v", err)
+		return fmt.Appendf(nil, "failed to exchange token: %v", err), nil
+	}
+	r.oidcClient.OIDCToken <- tokens
+	return contents, nil
 }
