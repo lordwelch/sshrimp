@@ -49,10 +49,11 @@ func newOIDCClient(c *config.SSHrimp, redirectURI url.URL) (*OidcClient, error) 
 
 	oidcMux := http.NewServeMux()
 	client := &OidcClient{
-		oidcMux:     oidcMux,
-		OIDCToken:   token,
-		Certificate: &ssh.Certificate{},
-		SSHrimp:     c,
+		oidcMux:       oidcMux,
+		OIDCToken:     token,
+		Certificate:   &ssh.Certificate{},
+		TokenRecieved: make(chan struct{}, 1),
+		SSHrimp:       c,
 		provider: &Provider{
 			providerURL:   c.Agent.ProviderURL,
 			clientID:      c.Agent.ClientID,

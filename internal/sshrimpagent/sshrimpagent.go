@@ -3,17 +3,14 @@ package sshrimpagent
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"gitea.narnian.us/lordwelch/sshrimp/internal/config"
 	"gitea.narnian.us/lordwelch/sshrimp/internal/signer"
-	"github.com/google/uuid"
 	"github.com/pkg/browser"
 	"github.com/rymdport/portal/openuri"
 	"github.com/sirupsen/logrus"
@@ -82,8 +79,10 @@ func (r *sshrimpAgent) authenticate() error {
 		select {
 		//
 		case <-r.oidcClient.TokenRecieved:
+			Log.Logger.Trace("Token Recieved")
 			return nil
 		case <-time.After(30 * time.Second):
+			Log.Logger.Trace("Timeout waiting for token")
 			return TimeoutErr
 		}
 	}
@@ -111,25 +110,12 @@ func OpenURL(url string) {
 }
 
 func (r *sshrimpAgent) startAuth() {
-	r.oidcClient.pkce = base64.RawURLEncoding.EncodeToString([]byte(uuid.New().String()))
-	codeChallenge := oidc.NewSHACodeChallenge(r.oidcClient.pkce)
-	c := r.oidcClient.provider.OAuthConfig()
-	uri, _ := url.Parse(c.Endpoint.AuthURL)
-	v := uri.Query()
-	v.Set("code_challenge", codeChallenge)
-	v.Set("code_challenge_method", "S256")
-	v.Set("response_type", "code")
-	v.Set("client_id", c.ClientID)
-	// state does not matter but is required when using http redirect_uri
-	v.Set("state", uuid.New().String())
-	if c.RedirectURL != "" {
-		v.Set("redirect_uri", c.RedirectURL)
-	}
-	if len(c.Scopes) > 0 {
-		v.Set("scope", strings.Join(c.Scopes, " "))
-	}
 
-	uri.RawQuery = v.Encode()
+	uri := url.URL{
+		Scheme: "http",
+		Host:   "127.0.0.1:8888",
+		Path:   "/login",
+	}
 	OpenURL(uri.String())
 }
 
