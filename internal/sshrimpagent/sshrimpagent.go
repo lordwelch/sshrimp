@@ -91,13 +91,18 @@ func (r *sshrimpAgent) authenticate() error {
 
 func (r *sshrimpAgent) ReceiveTokens() {
 	for {
-		// always drain the r.oidcClient.OIDCToken channel so that the client doesn't wait around for nothing
+		// always drain the r.oidcClient.OIDCToken channel so that the web browser doesn't wait around for nothing
 		r.token = <-r.oidcClient.OIDCToken
-		// If we have recieved a token try to send on the r.oidcClient.TokenRecieved channel
+		// If we have recieved a token try to send on the r.oidcClient.TokenRecieved channel until it blocks.
+		// We may have multiple ssh connections in progress.
 		// An ssh connection may be waiting on this token we don't want them to wait the whole 30s for a timeout
-		select {
-		case r.oidcClient.TokenRecieved <- struct{}{}:
-		default:
+	tokenRecieved:
+		for {
+			select {
+			case r.oidcClient.TokenRecieved <- struct{}{}:
+			default:
+				break tokenRecieved
+			}
 		}
 	}
 }
