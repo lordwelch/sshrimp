@@ -147,13 +147,15 @@ func main() {
 		defaultConfigPath = configPathFromEnv
 	}
 	var (
-		cli cfg
-		err error
+		cli  cfg
+		eval bool
+		err  error
 	)
 	flag.StringVar(&cli.Config, "config", defaultConfigPath, "sshrimp config file")
 	flag.StringVar(&cli.LogDirectory, "log", getLogDir(), "sshrimp log directory")
 	flag.BoolVar(&cli.Verbose, "v", false, "enable verbose logging")
 	flag.BoolVar(&cli.Foreground, "f", false, "Run in the foreground")
+	flag.BoolVar(&eval, "eval", false, "Output shell code to export the SSH_AUTH_SOCK environment variable")
 
 	flag.Parse()
 	sshCommand := flag.Args()
@@ -171,6 +173,14 @@ func main() {
 	err = c.Read(cfgFile)
 	if err != nil {
 		panic(err)
+	}
+	if eval {
+		path := ExpandPath(c.Agent.Socket)
+		if strings.ContainsFunc(path, func(r rune) bool { return r == '"' || r < ' ' }) {
+			fmt.Println("agent path contains an invalid character")
+			os.Exit(2)
+		}
+		fmt.Printf(`SSH_AUTH_SOCK="%s"; export SSH_AUTH_SOCK`, path)
 	}
 	if os.Getenv("SSHRIMP_DAEMON") == "true" {
 		cli.Foreground = true
@@ -207,14 +217,14 @@ func main() {
 		nullFile.Close()
 		logger.Debugf("Agent started in the background check %s for logs", getLogDir())
 	}
-	if len(sshCommand) == 1 && strings.HasPrefix(sshCommand[0], "sshrimp:") {
+	if len(sshCommand) == 1 && strings.HasPrefix(sshCommand[0], "sshrimp://") {
 		conn, err := net.Dial("unix", ExpandPath(c.Agent.Socket))
 		if err != nil {
 			log.Fatalf("Failed to open SSH_AUTH_SOCK: %v", err)
 		}
 		agentClient := agent.NewClient(conn)
 		agentClient.Extension("sshrimp-oauth", []byte(sshCommand[0]))
-	} else if len(sshCommand) > 1 && filepath.Base(sshCommand[0]) == "ssh" {
+	} else if len(sshCommand) > 1 {
 		os.Setenv("SSH_AUTH_SOCK", ExpandPath(c.Agent.Socket))
 		sshExecutable := sshCommand[0]
 		if !filepath.IsAbs(sshCommand[0]) {
